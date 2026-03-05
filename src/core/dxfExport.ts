@@ -1,0 +1,158 @@
+import { NestingResult, SheetLayout } from './types';
+import { buildDiscLegend } from './exportUtils';
+
+// dxf-writer uses CommonJS default export
+import Drawing from 'dxf-writer';
+
+function drawSheetDxf(
+  drawing: Drawing,
+  sheet: SheetLayout,
+  sheetIndex: number,
+  totalSheets: number,
+  offsetX: number,
+  offsetY: number,
+  layerPrefix: string
+) {
+  // Create typed layers
+  drawing.addLayer(`${layerPrefix}Boundary`, Drawing.ACI.CYAN, 'CONTINUOUS');
+  drawing.addLayer(`${layerPrefix}Cuts`, Drawing.ACI.RED, 'CONTINUOUS');
+  drawing.addLayer(`${layerPrefix}Disassembly`, Drawing.ACI.MAGENTA, 'CONTINUOUS');
+  drawing.addLayer(`${layerPrefix}Score`, Drawing.ACI.GREEN, 'CONTINUOUS');
+  drawing.addLayer(`${layerPrefix}Text`, Drawing.ACI.WHITE, 'CONTINUOUS');
+
+  // Sheet boundary — cyan closed rectangle
+  drawing.setActiveLayer(`${layerPrefix}Boundary`);
+  drawing.drawRect(offsetX, offsetY, offsetX + sheet.width, offsetY + sheet.height);
+
+  // Disc circles + center holes — red, no fill
+  drawing.setActiveLayer(`${layerPrefix}Cuts`);
+  for (const disc of sheet.discs) {
+    const cx = offsetX + disc.x;
+    const cy = offsetY + disc.y;
+    drawing.drawCircle(cx, cy, disc.diameter / 2);
+    if (disc.centerHole !== null && disc.centerHole > 0) {
+      drawing.drawCircle(cx, cy, disc.centerHole / 2);
+    }
+  }
+
+  // Disassembly (scrap cuts) — magenta, L/C shaped (skip edges on sheet boundary)
+  if (sheet.scrapCuts?.length) {
+    drawing.setActiveLayer(`${layerPrefix}Disassembly`);
+    for (const cut of sheet.scrapCuts) {
+      const x1 = offsetX + cut.x;
+      const y1 = offsetY + cut.y;
+      const x2 = offsetX + cut.x + cut.width;
+      const y2 = offsetY + cut.y + cut.height;
+      const e = cut.edges;
+
+      if (e.top) drawing.drawLine(x1, y1, x2, y1);
+      if (e.right) drawing.drawLine(x2, y1, x2, y2);
+      if (e.bottom) drawing.drawLine(x1, y2, x2, y2);
+      if (e.left) drawing.drawLine(x1, y1, x1, y2);
+    }
+  }
+
+  // Score lines — yellow
+  if (sheet.scoreLines?.length) {
+    drawing.setActiveLayer(`${layerPrefix}Score`);
+    for (const line of sheet.scoreLines) {
+      drawing.drawLine(
+        offsetX + line.x1,
+        offsetY + line.y1,
+        offsetX + line.x2,
+        offsetY + line.y2
+      );
+    }
+  }
+
+  // Text — outside sheet boundary (above)
+  drawing.setActiveLayer(`${layerPrefix}Text`);
+  const textHeight = 1.5;
+  const textY = offsetY + sheet.height + 2;
+  drawing.drawText(
+    offsetX, textY, textHeight, 0,
+    `Sheet ${sheetIndex + 1} of ${totalSheets} - ${sheet.discs.length} discs`
+  );
+
+  const legend = buildDiscLegend(sheet);
+  if (legend) {
+    drawing.drawText(offsetX, textY + textHeight + 0.5, textHeight * 0.75, 0, legend);
+  }
+}
+
+/** Export each sheet as a separate DXF file */
+export function exportPerSheet(result: NestingResult): { filename: string; content: string }[] {
+  const files: { filename: string; content: string }[] = [];
+
+  for (let i = 0; i < result.sheets.length; i++) {
+    const sheet = result.sheets[i];
+    const drawing = new Drawing();
+    drawing.setUnits('Inches');
+
+    drawSheetDxf(drawing, sheet, i, result.totalSheets, 0, 0, '');
+
+    files.push({
+      filename: `sheet_${i + 1}.dxf`,
+      content: drawing.toDxfString(),
+    });
+  }
+
+  return files;
+}
+
+/** Export all sheets into one DXF with layers, gridded 4 columns wide */
+export function exportCombined(result: NestingResult): { filename: string; content: string } {
+  const drawing = new Drawing();
+  drawing.setUnits('Inches');
+
+  const sheetGap = 10;
+  const textSpace = 6;
+  const gridCols = 4;
+
+  for (let i = 0; i < result.sheets.length; i++) {
+    const sheet = result.sheets[i];
+    const col = i % gridCols;
+    const row = Math.floor(i / gridCols);
+    const offsetX = col * (sheet.width + sheetGap);
+    const offsetY = row * (sheet.height + sheetGap + textSpace);
+
+    drawSheetDxf(drawing, sheet, i, result.totalSheets, offsetX, offsetY, `Sheet${i + 1}_`);
+  }
+
+  return {
+    filename: `all_sheets_combined.dxf`,
+    content: drawing.toDxfString(),
+  };
+}
+
+/** Trigger browser download of a text file */
+export function downloadFile(filename: string, content: string) {
+  const blob = new Blob([content], { type: 'application/dxf' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+/** Download a blob file (for PDF etc.) */
+export function downloadBlob(filename: string, blob: Blob) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+/** Download a zip-like collection by downloading each file */
+export function downloadAllFiles(files: { filename: string; content: string }[]) {
+  for (const file of files) {
+    downloadFile(file.filename, file.content);
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "name": "disc-array-tool",
+  "version": "1.0.0",
+  "description": "Laser cut disc nesting and DXF generation tool",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "dxf-writer": "^1.18.4",
+    "typescript": "^5.9.3",
+    "vite": "^7.3.1"
+  },
+  "dependencies": {
+    "jspdf": "^4.2.0"
+  }
+}
