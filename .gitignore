@@ -7,6 +7,9 @@ dist/
 # Vite
 *.local
 
+image/
+
+
 # IDE
 .vscode/*
 !.vscode/extensions.json
