@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node --version)",
+      "Bash(npm --version)",
+      "Bash(export PATH=\"$PATH:/c/Program Files/nodejs\")",
+      "Bash(npm create vite@latest . -- --template vanilla-ts)",
+      "Bash(npm create vite@latest . -- --template vanilla-ts --force)",
+      "Bash(npm init -y)",
+      "Bash(npm install vite typescript dxf-writer --save-dev)",
+      "Bash(npx tsc --noEmit)",
+      "Bash(npm run dev)",
+      "Bash(npm install jspdf)",
+      "Bash(npm run build)",
+      "Bash(npx vite build)"
+    ]
+  }
+}

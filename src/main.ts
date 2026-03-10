@@ -2,7 +2,7 @@ import { DiscSpec, SheetConfig, ScrapConfig, ScoreConfig, NestingResult, Optimiz
 import { nestDiscs } from './core/nesting';
 import { generateScrapCuts } from './core/scrapCuts';
 import { generateScoreLines } from './core/scoreLines';
-import { createSheetConfig, createDiscForm, createScrapConfig, createScoreConfig, createGenerateSection, parseDiscSpecs } from './ui/InputForm';
+import { createSheetConfig, createDiscForm, createScrapConfig, createScoreConfig, parseDiscSpecs } from './ui/InputForm';
 import { createNestingControls, createExportControls } from './ui/Controls';
 import { renderPreview } from './ui/Preview';
 
@@ -39,8 +39,6 @@ function init() {
   const exportControlsEl = document.getElementById('export-controls')!;
   const scrapConfigEl = document.getElementById('scrap-config')!;
   const scoreConfigEl = document.getElementById('score-config')!;
-  const generateSectionEl = document.getElementById('generate-section')!;
-
   const defaultConfig: SheetConfig = { width: 48, height: 96, spacing: 0.1 };
   const defaultScrapConfig: ScrapConfig = {
     enabled: true,
@@ -64,6 +62,15 @@ function init() {
       gapMaxThreshold: 1.0,
       gapMarkLengthRatio: 0.5,
     },
+    smartV2Toggles: {
+      bridgeScoring: true,
+      areaSubdivision: true,
+    },
+    smartV2Settings: {
+      minHandBreakDistance: 0.25,
+      maxBridgeWidth: 2.0,
+      areaSliceMinGap: 1.0,
+    },
   };
 
   // Debounced auto-regenerate — only fires if we have valid specs
@@ -84,10 +91,6 @@ function init() {
   const { getMode, getNestingConfig } = createNestingControls(nestingControlsEl, scheduleRegenerate);
 
   createDiscForm(discFormEl, scheduleRegenerate);
-
-  createGenerateSection(generateSectionEl, (specs) => {
-    runNesting(specs, getConfig(), getMode(), getNestingConfig(), getScrapConfig(), getScoreConfig());
-  });
 
   createExportControls(exportControlsEl, () => currentResult);
 }

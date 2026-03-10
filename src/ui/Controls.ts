@@ -145,7 +145,7 @@ export function createExportControls(
         <option value="combined"${savedFormat === 'combined' ? ' selected' : ''}>Combined DXF (layers)</option>
         <option value="pdf"${savedFormat === 'pdf' ? ' selected' : ''}>PDF (full size)</option>
       </select>
-      <button class="btn-primary" id="export-btn">Export</button>
+      <button class="btn-primary btn-large" id="export-btn">Export</button>
     </div>
   `;
 

@@ -1,5 +1,6 @@
 import { SheetLayout, ScoreConfig, ScoreLine } from './types';
 import { generateSmartScoreLines } from './smartScoreLines';
+import { generateSmartV2ScoreLines } from './smartScoreLinesV2';
 
 export const RAY_STEP = 0.125; // march step in inches
 
@@ -52,6 +53,9 @@ export function hitsSheetEdge(px: number, py: number, sheet: SheetLayout, margin
 export function generateScoreLines(sheet: SheetLayout, config: ScoreConfig): ScoreLine[] {
   if (config.mode === 'smart') {
     return generateSmartScoreLines(sheet, config);
+  }
+  if (config.mode === 'smart-v2') {
+    return generateSmartV2ScoreLines(sheet, config);
   }
   return generateRadialScoreLines(sheet, config);
 }

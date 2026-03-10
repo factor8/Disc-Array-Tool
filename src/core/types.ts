@@ -65,7 +65,7 @@ export interface NestingConfig {
   direction: NestingDirection;
 }
 
-export type ScoreMode = 'radial' | 'smart';
+export type ScoreMode = 'radial' | 'smart' | 'smart-v2';
 
 export interface SmartScoreToggles {
   gapMarks: boolean;
@@ -77,9 +77,20 @@ export interface SmartScoreSettings {
   gapMarkLengthRatio: number;   // mark length as fraction of gap size
 }
 
+export interface SmartV2Settings {
+  minHandBreakDistance: number;  // gaps smaller than this break by hand, no score needed (default 0.25")
+  maxBridgeWidth: number;       // gaps larger than this aren't thin bridges (default 2.0")
+  areaSliceMinGap: number;      // minimum distance-to-obstacle to consider an area worth slicing (default 1.0")
+}
+
+export interface SmartV2Toggles {
+  bridgeScoring: boolean;       // score thin bridges between obstacles
+  areaSubdivision: boolean;     // slice large open areas in negative space
+}
+
 export interface ScoreConfig {
   enabled: boolean;            // whether score lines are generated
-  mode: ScoreMode;             // 'radial' = starburst, 'smart' = strategic placement
+  mode: ScoreMode;             // 'radial' = starburst, 'smart' = strategic placement, 'smart-v2' = negative-space analysis
   // Radial-mode settings
   scoreDiscMargin: number;   // inches gap between disc edge and score start
   scoreShapeMargin: number;  // inches gap between score end and other shapes (discs, scrap rects, sheet edge)
@@ -88,6 +99,9 @@ export interface ScoreConfig {
   // Smart-mode settings
   smartToggles: SmartScoreToggles;
   smartSettings: SmartScoreSettings;
+  // Smart v2 settings
+  smartV2Toggles: SmartV2Toggles;
+  smartV2Settings: SmartV2Settings;
 }
 
 export interface ScoreLine {

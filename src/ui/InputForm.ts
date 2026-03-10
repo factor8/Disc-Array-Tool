@@ -1,4 +1,4 @@
-import { DiscSpec, SheetConfig, ScrapConfig, ScoreConfig, ScrapDensity, ScoreMode } from '../core/types';
+import { DiscSpec, SheetConfig, ScrapConfig, ScoreConfig, ScrapDensity, ScoreMode, SmartV2Toggles, SmartV2Settings } from '../core/types';
 import { parseInches } from '../utils/parsing';
 
 let rowCounter = 0;
@@ -535,6 +535,8 @@ export function createScoreConfig(
         ...parsed,
         smartToggles: { ...defaults.smartToggles, ...parsed.smartToggles },
         smartSettings: { ...defaults.smartSettings, ...parsed.smartSettings },
+        smartV2Toggles: { ...defaults.smartV2Toggles, ...parsed.smartV2Toggles },
+        smartV2Settings: { ...defaults.smartV2Settings, ...parsed.smartV2Settings },
       };
     } catch { /* use defaults */ }
   }
@@ -542,6 +544,8 @@ export function createScoreConfig(
   const mode = initial.mode || 'radial';
   const toggles = initial.smartToggles;
   const settings = initial.smartSettings;
+  const v2Toggles = initial.smartV2Toggles;
+  const v2Settings = initial.smartV2Settings;
 
   container.innerHTML = `
     <div class="score-config">
@@ -557,6 +561,7 @@ export function createScoreConfig(
           <select id="score-mode">
             <option value="radial"${mode === 'radial' ? ' selected' : ''}>Radial</option>
             <option value="smart"${mode === 'smart' ? ' selected' : ''}>Smart</option>
+            <option value="smart-v2"${mode === 'smart-v2' ? ' selected' : ''}>Smart v2</option>
           </select>
         </div>
 
@@ -617,6 +622,44 @@ export function createScoreConfig(
             <input type="number" id="smart-min-length" value="${initial.minScoreLength}" step="0.1" min="0" />
           </div>
         </div>
+
+        <!-- Smart v2 mode fields -->
+        <div id="score-fields-smart-v2" style="${mode !== 'smart-v2' ? 'display:none;' : ''}">
+          <div class="field">
+            <label class="section-toggle">
+              <input type="checkbox" id="v2-bridge-scoring" ${v2Toggles.bridgeScoring ? 'checked' : ''} />
+              Bridge Scoring
+            </label>
+          </div>
+          <div class="field smart-sub" id="v2-bridge-fields" style="${!v2Toggles.bridgeScoring ? 'display:none;' : ''}">
+            <label>Min Hand-Break Distance (in)</label>
+            <input type="number" id="v2-min-hand-break" value="${v2Settings.minHandBreakDistance}" step="0.05" min="0" />
+          </div>
+          <div class="field smart-sub" id="v2-bridge-max-field" style="${!v2Toggles.bridgeScoring ? 'display:none;' : ''}">
+            <label>Max Bridge Width (in)</label>
+            <input type="number" id="v2-max-bridge" value="${v2Settings.maxBridgeWidth}" step="0.25" min="0.25" />
+          </div>
+
+          <div class="field">
+            <label class="section-toggle">
+              <input type="checkbox" id="v2-area-subdivision" ${v2Toggles.areaSubdivision ? 'checked' : ''} />
+              Area Subdivision
+            </label>
+          </div>
+          <div class="field smart-sub" id="v2-area-fields" style="${!v2Toggles.areaSubdivision ? 'display:none;' : ''}">
+            <label>Min Open Area Gap (in)</label>
+            <input type="number" id="v2-area-min-gap" value="${v2Settings.areaSliceMinGap}" step="0.25" min="0.25" />
+          </div>
+
+          <div class="field">
+            <label>Shape Margin (in)</label>
+            <input type="number" id="v2-shape-margin" value="${initial.scoreShapeMargin}" step="0.05" min="0" />
+          </div>
+          <div class="field">
+            <label>Min Score Length (in)</label>
+            <input type="number" id="v2-min-length" value="${initial.minScoreLength}" step="0.1" min="0" />
+          </div>
+        </div>
       </div>
     </div>
   `;
@@ -627,15 +670,21 @@ export function createScoreConfig(
 
   function getConfig(): ScoreConfig {
     const currentMode = (document.getElementById('score-mode') as HTMLSelectElement).value as ScoreMode;
-    const isRadial = currentMode === 'radial';
+    const marginId = currentMode === 'radial' ? 'score-shape-margin'
+      : currentMode === 'smart' ? 'smart-shape-margin'
+      : 'v2-shape-margin';
+    const lengthId = currentMode === 'radial' ? 'score-min-length'
+      : currentMode === 'smart' ? 'smart-min-length'
+      : 'v2-min-length';
+    const discMarginId = currentMode === 'radial' ? 'score-disc-margin' : 'smart-disc-margin';
 
     return {
       enabled: (document.getElementById('score-enabled') as HTMLInputElement).checked,
       mode: currentMode,
-      scoreDiscMargin: parseFloat((document.getElementById(isRadial ? 'score-disc-margin' : 'smart-disc-margin') as HTMLInputElement).value) ?? defaults.scoreDiscMargin,
-      scoreShapeMargin: parseFloat((document.getElementById(isRadial ? 'score-shape-margin' : 'smart-shape-margin') as HTMLInputElement).value) ?? defaults.scoreShapeMargin,
+      scoreDiscMargin: parseFloat((document.getElementById(discMarginId) as HTMLInputElement)?.value) ?? defaults.scoreDiscMargin,
+      scoreShapeMargin: parseFloat((document.getElementById(marginId) as HTMLInputElement).value) ?? defaults.scoreShapeMargin,
       scoreDensity: (document.getElementById('score-density') as HTMLSelectElement).value as ScrapDensity,
-      minScoreLength: parseFloat((document.getElementById(isRadial ? 'score-min-length' : 'smart-min-length') as HTMLInputElement).value) || defaults.minScoreLength,
+      minScoreLength: parseFloat((document.getElementById(lengthId) as HTMLInputElement).value) || defaults.minScoreLength,
       smartToggles: {
         gapMarks: (document.getElementById('smart-gap-marks') as HTMLInputElement).checked,
         diagonalLines: (document.getElementById('smart-diagonal-lines') as HTMLInputElement).checked,
@@ -643,6 +692,15 @@ export function createScoreConfig(
       smartSettings: {
         gapMaxThreshold: parseFloat((document.getElementById('smart-gap-threshold') as HTMLInputElement).value) || defaults.smartSettings.gapMaxThreshold,
         gapMarkLengthRatio: defaults.smartSettings.gapMarkLengthRatio,
+      },
+      smartV2Toggles: {
+        bridgeScoring: (document.getElementById('v2-bridge-scoring') as HTMLInputElement).checked,
+        areaSubdivision: (document.getElementById('v2-area-subdivision') as HTMLInputElement).checked,
+      },
+      smartV2Settings: {
+        minHandBreakDistance: parseFloat((document.getElementById('v2-min-hand-break') as HTMLInputElement).value) ?? defaults.smartV2Settings.minHandBreakDistance,
+        maxBridgeWidth: parseFloat((document.getElementById('v2-max-bridge') as HTMLInputElement).value) || defaults.smartV2Settings.maxBridgeWidth,
+        areaSliceMinGap: parseFloat((document.getElementById('v2-area-min-gap') as HTMLInputElement).value) || defaults.smartV2Settings.areaSliceMinGap,
       },
     };
   }
@@ -659,6 +717,7 @@ export function createScoreConfig(
     const m = (document.getElementById('score-mode') as HTMLSelectElement).value;
     document.getElementById('score-fields-radial')!.style.display = m === 'radial' ? '' : 'none';
     document.getElementById('score-fields-smart')!.style.display = m === 'smart' ? '' : 'none';
+    document.getElementById('score-fields-smart-v2')!.style.display = m === 'smart-v2' ? '' : 'none';
     persist(); onChange();
   });
 
@@ -678,6 +737,24 @@ export function createScoreConfig(
 
   // Smart mode number inputs
   for (const id of ['smart-gap-threshold', 'smart-disc-margin', 'smart-shape-margin', 'smart-min-length']) {
+    document.getElementById(id)!.addEventListener('input', () => { persist(); onChange(); });
+  }
+
+  // Smart v2 toggle checkboxes
+  document.getElementById('v2-bridge-scoring')!.addEventListener('change', () => {
+    const checked = (document.getElementById('v2-bridge-scoring') as HTMLInputElement).checked;
+    document.getElementById('v2-bridge-fields')!.style.display = checked ? '' : 'none';
+    document.getElementById('v2-bridge-max-field')!.style.display = checked ? '' : 'none';
+    persist(); onChange();
+  });
+  document.getElementById('v2-area-subdivision')!.addEventListener('change', () => {
+    const checked = (document.getElementById('v2-area-subdivision') as HTMLInputElement).checked;
+    document.getElementById('v2-area-fields')!.style.display = checked ? '' : 'none';
+    persist(); onChange();
+  });
+
+  // Smart v2 number inputs
+  for (const id of ['v2-min-hand-break', 'v2-max-bridge', 'v2-area-min-gap', 'v2-shape-margin', 'v2-min-length']) {
     document.getElementById(id)!.addEventListener('input', () => { persist(); onChange(); });
   }
 
