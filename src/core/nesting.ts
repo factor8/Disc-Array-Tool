@@ -169,18 +169,44 @@ function findPlacement(
   nestingConfig: NestingConfig
 ): { x: number; y: number } | null {
   const candidates = generateTangentCandidates(radius, placed, sheetWidth, sheetHeight, spacing);
+  // Classify candidates: those touching an existing disc vs. wall-only (corners)
+  // Prefer disc-adjacent positions to keep discs clustered together
+  const isTouchingDisc = (cx: number, cy: number): boolean => {
+    const eps = 0.01;
+    for (const disc of placed) {
+      const dx = cx - disc.x;
+      const dy = cy - disc.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      const touchDist = radius + disc.diameter / 2 + spacing;
+      if (Math.abs(dist - touchDist) < eps) return true;
+    }
+    return false;
+  };
 
-  let bestPos: { x: number; y: number } | null = null;
-  let bestScore = Infinity;
+  let bestDiscAdjacentPos: { x: number; y: number } | null = null;
+  let bestDiscAdjacentScore = Infinity;
+  let bestWallOnlyPos: { x: number; y: number } | null = null;
+  let bestWallOnlyScore = Infinity;
 
   for (const cand of candidates) {
     if (!canPlace(cand.x, cand.y, radius, placed, sheetWidth, sheetHeight, spacing)) continue;
     const score = cornerScore(cand.x, cand.y, sheetWidth, sheetHeight, nestingConfig);
-    if (score < bestScore) {
-      bestScore = score;
-      bestPos = cand;
+
+    if (placed.length > 0 && isTouchingDisc(cand.x, cand.y)) {
+      if (score < bestDiscAdjacentScore) {
+        bestDiscAdjacentScore = score;
+        bestDiscAdjacentPos = cand;
+      }
+    } else {
+      if (score < bestWallOnlyScore) {
+        bestWallOnlyScore = score;
+        bestWallOnlyPos = cand;
+      }
     }
   }
+
+  // Prefer disc-adjacent positions; fall back to wall-only
+  const bestPos = bestDiscAdjacentPos ?? bestWallOnlyPos;
 
   // Fallback: grid scan for cases where tangent candidates miss
   // (e.g., very first disc on empty sheet with no walls nearby, or unusual configurations)
