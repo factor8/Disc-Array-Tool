@@ -9,6 +9,7 @@ interface NestingSettings {
   mode: OptimizationMode;
   corner: NestingCorner;
   direction: NestingDirection;
+  minUtilization?: number;
 }
 
 function loadNestingSettings(): NestingSettings | null {
@@ -32,6 +33,7 @@ export function createNestingControls(
   const initialMode = saved?.mode ?? 'minimize-sheets';
   const initialCorner = saved?.corner ?? 'bottom-left';
   const initialDirection = saved?.direction ?? 'horizontal';
+  const initialMinUtil = saved?.minUtilization ?? 0.85;
 
   // Load saved spacing from sheet config
   let initialSpacing = defaultSpacing;
@@ -51,6 +53,7 @@ export function createNestingControls(
     'top-right': 'Top-Right',
   };
 
+  const initialMinUtilPct = Math.round(initialMinUtil * 100);
   container.innerHTML = `
     <div class="nesting-controls">
       <h3>Nesting</h3>
@@ -70,6 +73,10 @@ export function createNestingControls(
         </div>
       </div>
       <div class="nesting-fields">
+        <div class="field" id="min-util-field" style="${initialMode === 'minimize-unique' ? '' : 'display:none'}">
+          <label>Min. Sheet Fill: <span id="min-util-display">${initialMinUtilPct}%</span></label>
+          <input type="range" id="nest-min-util" min="50" max="100" step="5" value="${initialMinUtilPct}" />
+        </div>
         <div class="field">
           <label>Starting Corner</label>
           <select id="nest-corner">
@@ -91,11 +98,17 @@ export function createNestingControls(
     </div>
   `;
 
+  function getMinUtil(): number {
+    const slider = document.getElementById('nest-min-util') as HTMLInputElement;
+    return parseInt(slider.value, 10) / 100;
+  }
+
   function persist() {
     saveNestingSettings({
       mode: getMode(),
       corner: (document.getElementById('nest-corner') as HTMLSelectElement).value as NestingCorner,
       direction: (document.getElementById('nest-direction') as HTMLSelectElement).value as NestingDirection,
+      minUtilization: getMinUtil(),
     });
   }
 
@@ -107,8 +120,19 @@ export function createNestingControls(
   // Listen to all controls
   const radios = container.querySelectorAll<HTMLInputElement>('input[name="opt-mode"]');
   for (const radio of radios) {
-    radio.addEventListener('change', () => { persist(); onChange(); });
+    radio.addEventListener('change', () => {
+      const utilField = document.getElementById('min-util-field')!;
+      utilField.style.display = getMode() === 'minimize-unique' ? '' : 'none';
+      persist();
+      onChange();
+    });
   }
+  document.getElementById('nest-min-util')!.addEventListener('input', () => {
+    const slider = document.getElementById('nest-min-util') as HTMLInputElement;
+    document.getElementById('min-util-display')!.textContent = `${slider.value}%`;
+    persist();
+    onChange();
+  });
   document.getElementById('nest-corner')!.addEventListener('change', () => { persist(); onChange(); });
   document.getElementById('nest-direction')!.addEventListener('change', () => { persist(); onChange(); });
   document.getElementById('sheet-spacing')!.addEventListener('input', () => {
@@ -127,6 +151,7 @@ export function createNestingControls(
       return {
         corner: (document.getElementById('nest-corner') as HTMLSelectElement).value as NestingCorner,
         direction: (document.getElementById('nest-direction') as HTMLSelectElement).value as NestingDirection,
+        minUtilization: getMinUtil(),
       };
     },
   };

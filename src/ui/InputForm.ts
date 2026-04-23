@@ -137,6 +137,11 @@ export function createSheetConfig(
   };
 }
 
+function parseNum(value: string, fallback: number): number {
+  const n = parseFloat(value);
+  return isNaN(n) ? fallback : n;
+}
+
 let emptyRow: HTMLTableRowElement | null = null;
 
 function createRow(
@@ -499,8 +504,8 @@ export function createScrapConfig(
       enabled: (document.getElementById('scrap-enabled') as HTMLInputElement).checked,
       minScrapEdge: parseFloat((document.getElementById('scrap-min-area') as HTMLInputElement).value) || defaults.minScrapEdge,
       scrapDensity: (document.getElementById('scrap-density') as HTMLSelectElement).value as ScrapDensity,
-      scrapEdgeMargin: parseFloat((document.getElementById('scrap-edge-margin') as HTMLInputElement).value) ?? defaults.scrapEdgeMargin,
-      scrapDiscMargin: parseFloat((document.getElementById('scrap-disc-margin') as HTMLInputElement).value) ?? defaults.scrapDiscMargin,
+      scrapEdgeMargin: parseNum((document.getElementById('scrap-edge-margin') as HTMLInputElement).value, defaults.scrapEdgeMargin),
+      scrapDiscMargin: parseNum((document.getElementById('scrap-disc-margin') as HTMLInputElement).value, defaults.scrapDiscMargin),
     };
   }
 
@@ -681,8 +686,8 @@ export function createScoreConfig(
     return {
       enabled: (document.getElementById('score-enabled') as HTMLInputElement).checked,
       mode: currentMode,
-      scoreDiscMargin: parseFloat((document.getElementById(discMarginId) as HTMLInputElement)?.value) ?? defaults.scoreDiscMargin,
-      scoreShapeMargin: parseFloat((document.getElementById(marginId) as HTMLInputElement).value) ?? defaults.scoreShapeMargin,
+      scoreDiscMargin: parseNum((document.getElementById(discMarginId) as HTMLInputElement)?.value ?? '', defaults.scoreDiscMargin),
+      scoreShapeMargin: parseNum((document.getElementById(marginId) as HTMLInputElement).value, defaults.scoreShapeMargin),
       scoreDensity: (document.getElementById('score-density') as HTMLSelectElement).value as ScrapDensity,
       minScoreLength: parseFloat((document.getElementById(lengthId) as HTMLInputElement).value) || defaults.minScoreLength,
       smartToggles: {
@@ -690,7 +695,7 @@ export function createScoreConfig(
         diagonalLines: (document.getElementById('smart-diagonal-lines') as HTMLInputElement).checked,
       },
       smartSettings: {
-        gapMaxThreshold: parseFloat((document.getElementById('smart-gap-threshold') as HTMLInputElement).value) || defaults.smartSettings.gapMaxThreshold,
+        gapMaxThreshold: parseNum((document.getElementById('smart-gap-threshold') as HTMLInputElement).value, defaults.smartSettings.gapMaxThreshold),
         gapMarkLengthRatio: defaults.smartSettings.gapMarkLengthRatio,
       },
       smartV2Toggles: {
@@ -698,9 +703,9 @@ export function createScoreConfig(
         areaSubdivision: (document.getElementById('v2-area-subdivision') as HTMLInputElement).checked,
       },
       smartV2Settings: {
-        minHandBreakDistance: parseFloat((document.getElementById('v2-min-hand-break') as HTMLInputElement).value) ?? defaults.smartV2Settings.minHandBreakDistance,
-        maxBridgeWidth: parseFloat((document.getElementById('v2-max-bridge') as HTMLInputElement).value) || defaults.smartV2Settings.maxBridgeWidth,
-        areaSliceMinGap: parseFloat((document.getElementById('v2-area-min-gap') as HTMLInputElement).value) || defaults.smartV2Settings.areaSliceMinGap,
+        minHandBreakDistance: parseNum((document.getElementById('v2-min-hand-break') as HTMLInputElement).value, defaults.smartV2Settings.minHandBreakDistance),
+        maxBridgeWidth: parseNum((document.getElementById('v2-max-bridge') as HTMLInputElement).value, defaults.smartV2Settings.maxBridgeWidth),
+        areaSliceMinGap: parseNum((document.getElementById('v2-area-min-gap') as HTMLInputElement).value, defaults.smartV2Settings.areaSliceMinGap),
       },
     };
   }

@@ -314,7 +314,49 @@ function packGreedy(
 }
 
 /**
- * Template-based nesting: try to build sheets that can be repeated.
+ * Pack as many discs as will fit onto a single sheet, skipping any that don't.
+ * Returns the filled sheet and the per-spec counts of what was placed.
+ * Discs should be sorted largest-first before calling so the sheet fills densely.
+ */
+function packOneSheet(
+  discs: DiscJob[],
+  config: SheetConfig,
+  nestingConfig: NestingConfig,
+): { sheet: SheetLayout; placedCounts: Map<string, number> } {
+  const id = `sheet-${nextSheetId++}`;
+  const sheet: SheetLayout = {
+    id,
+    templateId: id,
+    width: config.width,
+    height: config.height,
+    discs: [],
+  };
+  const placedCounts = new Map<string, number>();
+
+  for (const disc of discs) {
+    const pos = findPlacement(disc.diameter / 2, sheet.discs, config.width, config.height, config.spacing, nestingConfig);
+    if (pos) {
+      sheet.discs.push({ x: pos.x, y: pos.y, diameter: disc.diameter, centerHole: disc.centerHole, specId: disc.specId });
+      placedCounts.set(disc.specId, (placedCounts.get(disc.specId) || 0) + 1);
+    }
+  }
+
+  return { sheet, placedCounts };
+}
+
+/**
+ * Template-based nesting: find a repeating single-sheet layout that balances
+ * fewest unique layouts with the target sheet-fill level (nestingConfig.minUtilization).
+ *
+ * For each candidate repeat-count N the algorithm:
+ *  1. Allows up to floor(spec.count / N) of each disc type in the template.
+ *  2. Greedily fills ONE sheet with as many of those discs as will fit
+ *     (rather than requiring ALL of them to fit — the old approach left many
+ *     good candidates rejected before scoring could even compare them).
+ *  3. Repeats that sheet N times, packs the remainder with greedy.
+ *  4. Scores the result: fewer unique layouts is primary, but templates that
+ *     fall below the target fill are penalised so a well-filled 2-layout result
+ *     can beat a sparse 1-layout result.
  */
 function packTemplated(
   discs: DiscJob[],
@@ -324,48 +366,42 @@ function packTemplated(
 ): SheetLayout[] {
   const relevantSpecs = specs.filter(s => s.count > 0);
 
-  let bestResult: SheetLayout[] | null = null;
-  let bestUniqueCount = Infinity;
+  const targetUtil = nestingConfig.minUtilization ?? 0.85;
+  // Each unit of unique-layout count is worth this many units of utilisation.
+  // At 6: a 2-layout result at target% beats a 1-layout result that is more
+  // than ~(1/6 ≈ 17%) below target.  E.g. target=85% → break-even at ~68%.
+  const UTIL_PENALTY = 6;
 
+  let bestResult: SheetLayout[] | null = null;
+  let bestScore = Infinity;
+
+  // Candidate repeat counts: every integer that is a valid divisor-ish for at
+  // least one spec count.  Identical to the original set.
   const candidateRepeats = new Set<number>();
   for (const spec of relevantSpecs) {
-    for (let k = 1; k <= spec.count; k++) {
-      candidateRepeats.add(k);
-    }
+    for (let k = 1; k <= spec.count; k++) candidateRepeats.add(k);
   }
 
-  for (const repeatCount of Array.from(candidateRepeats).sort((a, b) => b - a)) {
-    const templateCounts = new Map<string, number>();
-    let totalPerTemplate = 0;
+  // Specs sorted largest-first so packOneSheet fills densely.
+  const specsBySize = [...relevantSpecs].sort((a, b) => b.diameter - a.diameter);
 
-    for (const spec of relevantSpecs) {
-      const perTemplate = Math.floor(spec.count / repeatCount);
-      if (perTemplate > 0) {
-        templateCounts.set(spec.id, perTemplate);
-        totalPerTemplate += perTemplate;
+  for (const repeatCount of candidateRepeats) {
+    // Build a disc list up to the per-spec limit for this repeat count.
+    const templateCandidates: DiscJob[] = [];
+    for (const spec of specsBySize) {
+      const limit = Math.floor(spec.count / repeatCount);
+      for (let i = 0; i < limit; i++) {
+        templateCandidates.push({ specId: spec.id, diameter: spec.diameter, centerHole: spec.centerHole });
       }
     }
+    if (templateCandidates.length === 0) continue;
 
-    if (totalPerTemplate === 0) continue;
+    // Fill one sheet as densely as possible (skipping any disc that doesn't fit).
+    const { sheet: templateSheet, placedCounts } = packOneSheet(templateCandidates, config, nestingConfig);
+    if (templateSheet.discs.length === 0) continue;
 
-    const templateDiscs: DiscJob[] = [];
-    for (const spec of relevantSpecs) {
-      const count = templateCounts.get(spec.id) || 0;
-      for (let i = 0; i < count; i++) {
-        templateDiscs.push({
-          specId: spec.id,
-          diameter: spec.diameter,
-          centerHole: spec.centerHole,
-        });
-      }
-    }
-
-    const templateSheets = packGreedy(templateDiscs, config, nestingConfig);
-    if (templateSheets.length !== 1) continue;
-
-    const templateSheet = templateSheets[0];
+    // Build repeatCount identical copies of the template.
     const templateId = `template-${nextSheetId++}`;
-
     const sheets: SheetLayout[] = [];
     for (let i = 0; i < repeatCount; i++) {
       sheets.push({
@@ -377,34 +413,37 @@ function packTemplated(
       });
     }
 
+    // Remainder = everything not consumed by the template copies.
     const remainderDiscs: DiscJob[] = [];
     for (const spec of relevantSpecs) {
-      const used = (templateCounts.get(spec.id) || 0) * repeatCount;
-      const remaining = spec.count - used;
+      const usedPerTemplate = placedCounts.get(spec.id) || 0;
+      const remaining = spec.count - usedPerTemplate * repeatCount;
       for (let i = 0; i < remaining; i++) {
-        remainderDiscs.push({
-          specId: spec.id,
-          diameter: spec.diameter,
-          centerHole: spec.centerHole,
-        });
+        remainderDiscs.push({ specId: spec.id, diameter: spec.diameter, centerHole: spec.centerHole });
       }
     }
-
     if (remainderDiscs.length > 0) {
-      const remainderSheets = packGreedy(remainderDiscs, config, nestingConfig);
-      sheets.push(...remainderSheets);
+      sheets.push(...packGreedy(remainderDiscs, config, nestingConfig));
     }
 
     const uniqueTemplates = new Set(sheets.map(s => s.templateId)).size;
-    if (uniqueTemplates < bestUniqueCount) {
-      bestUniqueCount = uniqueTemplates;
+
+    // Utilisation = disc area on template sheet ÷ total sheet area.
+    const sheetArea = config.width * config.height;
+    const templateUtil = templateSheet.discs.reduce(
+      (sum, d) => sum + Math.PI * (d.diameter / 2) ** 2, 0
+    ) / sheetArea;
+
+    // Combined score: minimise unique layouts, penalise being below target fill.
+    const score = uniqueTemplates + Math.max(0, targetUtil - templateUtil) * UTIL_PENALTY;
+
+    if (score < bestScore) {
+      bestScore = score;
       bestResult = sheets;
     }
   }
 
-  if (bestResult) return bestResult;
-
-  return packGreedy(discs, config, nestingConfig);
+  return bestResult ?? packGreedy(discs, config, nestingConfig);
 }
 
 export function nestDiscs(

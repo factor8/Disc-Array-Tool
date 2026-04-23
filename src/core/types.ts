@@ -63,6 +63,7 @@ export type NestingDirection = 'horizontal' | 'vertical';
 export interface NestingConfig {
   corner: NestingCorner;
   direction: NestingDirection;
+  minUtilization?: number; // 0–1, target minimum fill for repeated template sheets (minimize-unique mode only)
 }
 
 export type ScoreMode = 'radial' | 'smart' | 'smart-v2';
