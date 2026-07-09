@@ -44,12 +44,15 @@ function buildGrid(
 
     for (let r = minR; r <= maxR; r++) {
       for (let c = minC; c <= maxC; c++) {
-        // Cell center position in inches
-        const cellX = (c + 0.5) * CELL_SIZE;
-        const cellY = (r + 0.5) * CELL_SIZE;
-        const dx = cellX - cx;
-        const dy = cellY - cy;
-        if (dx * dx + dy * dy <= exclusionRadius * exclusionRadius) {
+        // Use the closest point on the cell rectangle to the disc center.
+        // This ensures any cell that even partially overlaps the exclusion
+        // circle is marked occupied, so the scrap cut boundary never
+        // intrudes into the disc regardless of grid alignment.
+        const closestX = Math.max(c * CELL_SIZE, Math.min(cx, (c + 1) * CELL_SIZE));
+        const closestY = Math.max(r * CELL_SIZE, Math.min(cy, (r + 1) * CELL_SIZE));
+        const dx = closestX - cx;
+        const dy = closestY - cy;
+        if (dx * dx + dy * dy < exclusionRadius * exclusionRadius) {
           grid[r][c] = true;
         }
       }
