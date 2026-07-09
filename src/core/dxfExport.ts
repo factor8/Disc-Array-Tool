@@ -1,8 +1,79 @@
-import { NestingResult, SheetLayout } from './types';
+import { NestingResult, SheetLayout, ScrapCut } from './types';
 import { buildDiscLegend } from './exportUtils';
 
 // dxf-writer uses CommonJS default export
 import Drawing from 'dxf-writer';
+
+/**
+ * Point the drawing's default text style at a TrueType font that exists on
+ * every platform. dxf-writer defaults to the AutoCAD SHX font "txt", which
+ * most CAD / laser programs don't ship — so they warn about a missing font
+ * every time the DXF is imported. Arial is the universally-available
+ * cross-platform stand-in for Helvetica.
+ */
+function useCrossPlatformFont(drawing: Drawing) {
+  const styleTable = (drawing as any).tables?.STYLE;
+  if (!styleTable) return;
+  for (const style of styleTable.elements) {
+    style.fontFileName = 'Arial.ttf';
+  }
+}
+
+/**
+ * Trace a scrap cut's active edges into connected polyline chains so an
+ * exported rectangle is one compound line (and an L is one, not two). Edges
+ * are walked around the rectangle in cyclic order (top → right → bottom →
+ * left); consecutive active edges join into a single chain, and a full
+ * rectangle becomes a single closed polyline.
+ */
+function scrapCutPolylines(
+  cut: ScrapCut,
+  offsetX: number,
+  offsetY: number
+): { points: [number, number][]; closed: boolean }[] {
+  const x1 = offsetX + cut.x;
+  const y1 = offsetY + cut.y;
+  const x2 = x1 + cut.width;
+  const y2 = y1 + cut.height;
+
+  const A: [number, number] = [x1, y1]; // top-left
+  const B: [number, number] = [x2, y1]; // top-right
+  const C: [number, number] = [x2, y2]; // bottom-right
+  const D: [number, number] = [x1, y2]; // bottom-left
+
+  // Edges in cyclic order, each connecting one corner to the next.
+  const cycle = [
+    { on: cut.edges.top, a: A, b: B },
+    { on: cut.edges.right, a: B, b: C },
+    { on: cut.edges.bottom, a: C, b: D },
+    { on: cut.edges.left, a: D, b: A },
+  ];
+
+  const activeCount = cycle.filter((e) => e.on).length;
+  if (activeCount === 0) return [];
+  if (activeCount === 4) {
+    return [{ points: [A, B, C, D], closed: true }];
+  }
+
+  // Start walking just after a gap so chains don't split across the wrap point.
+  let start = 0;
+  while (cycle[start].on) start++;
+
+  const polylines: { points: [number, number][]; closed: boolean }[] = [];
+  let current: [number, number][] | null = null;
+  for (let k = 1; k <= 4; k++) {
+    const e = cycle[(start + k) % 4];
+    if (e.on) {
+      if (!current) current = [e.a, e.b];
+      else current.push(e.b);
+    } else if (current) {
+      polylines.push({ points: current, closed: false });
+      current = null;
+    }
+  }
+  if (current) polylines.push({ points: current, closed: false });
+  return polylines;
+}
 
 function drawSheetDxf(
   drawing: Drawing,
@@ -35,20 +106,14 @@ function drawSheetDxf(
     }
   }
 
-  // Disassembly (scrap cuts) — magenta, L/C shaped (skip edges on sheet boundary)
+  // Disassembly (scrap cuts) — magenta, joined into compound polylines
+  // (skip edges on sheet boundary)
   if (sheet.scrapCuts?.length) {
     drawing.setActiveLayer(`${layerPrefix}Disassembly`);
     for (const cut of sheet.scrapCuts) {
-      const x1 = offsetX + cut.x;
-      const y1 = offsetY + cut.y;
-      const x2 = offsetX + cut.x + cut.width;
-      const y2 = offsetY + cut.y + cut.height;
-      const e = cut.edges;
-
-      if (e.top) drawing.drawLine(x1, y1, x2, y1);
-      if (e.right) drawing.drawLine(x2, y1, x2, y2);
-      if (e.bottom) drawing.drawLine(x1, y2, x2, y2);
-      if (e.left) drawing.drawLine(x1, y1, x1, y2);
+      for (const pl of scrapCutPolylines(cut, offsetX, offsetY)) {
+        drawing.drawPolyline(pl.points, pl.closed);
+      }
     }
   }
 
@@ -88,6 +153,7 @@ export function exportPerSheet(result: NestingResult): { filename: string; conte
     const sheet = result.sheets[i];
     const drawing = new Drawing();
     drawing.setUnits('Inches');
+    useCrossPlatformFont(drawing);
 
     drawSheetDxf(drawing, sheet, i, result.totalSheets, 0, 0, '');
 
@@ -104,6 +170,7 @@ export function exportPerSheet(result: NestingResult): { filename: string; conte
 export function exportCombined(result: NestingResult): { filename: string; content: string } {
   const drawing = new Drawing();
   drawing.setUnits('Inches');
+  useCrossPlatformFont(drawing);
 
   const sheetGap = 10;
   const textSpace = 6;
