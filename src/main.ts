@@ -2,8 +2,9 @@ import { DiscSpec, SheetConfig, ScrapConfig, ScoreConfig, NestingResult, Optimiz
 import { nestDiscs } from './core/nesting';
 import { generateScrapCuts } from './core/scrapCuts';
 import { generateScoreLines } from './core/scoreLines';
+import { DEFAULT_EXPORT_COLORS } from './core/exportUtils';
 import { createSheetConfig, createDiscForm, createScrapConfig, createScoreConfig, parseDiscSpecs } from './ui/InputForm';
-import { createNestingControls, createExportControls } from './ui/Controls';
+import { createNestingControls, createExportControls, createColorControls, createDefaultsControls, DefaultsSnapshot } from './ui/Controls';
 import { renderPreview } from './ui/Preview';
 
 let currentResult: NestingResult | null = null;
@@ -36,9 +37,11 @@ function init() {
   const sheetConfigEl = document.getElementById('sheet-config')!;
   const discFormEl = document.getElementById('disc-form')!;
   const nestingControlsEl = document.getElementById('nesting-controls')!;
+  const colorControlsEl = document.getElementById('color-config')!;
   const exportControlsEl = document.getElementById('export-controls')!;
   const scrapConfigEl = document.getElementById('scrap-config')!;
   const scoreConfigEl = document.getElementById('score-config')!;
+  const defaultsControlsEl = document.getElementById('defaults-controls')!;
   const defaultConfig: SheetConfig = { width: 48, height: 96, spacing: 0.1 };
   const defaultScrapConfig: ScrapConfig = {
     enabled: true,
@@ -92,7 +95,29 @@ function init() {
 
   createDiscForm(discFormEl, scheduleRegenerate);
 
-  createExportControls(exportControlsEl, () => currentResult);
+  const { getColors } = createColorControls(colorControlsEl);
+  createExportControls(exportControlsEl, () => currentResult, getColors);
+
+  // Built-in fallback used when the user hasn't saved their own defaults yet.
+  const builtinDefaults: DefaultsSnapshot = {
+    sheet: defaultConfig,
+    nesting: { mode: 'minimize-sheets', corner: 'bottom-left', direction: 'horizontal', minUtilization: 0.85 },
+    scrap: defaultScrapConfig,
+    score: defaultScoreConfig,
+    colors: DEFAULT_EXPORT_COLORS,
+  };
+
+  createDefaultsControls(
+    defaultsControlsEl,
+    () => ({
+      sheet: getConfig(),
+      nesting: { mode: getMode(), ...getNestingConfig() },
+      scrap: getScrapConfig(),
+      score: getScoreConfig(),
+      colors: getColors(),
+    }),
+    builtinDefaults
+  );
 }
 
 init();

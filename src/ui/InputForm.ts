@@ -1,5 +1,6 @@
 import { DiscSpec, SheetConfig, ScrapConfig, ScoreConfig, ScrapDensity, ScoreMode, SmartV2Toggles, SmartV2Settings } from '../core/types';
 import { parseInches } from '../utils/parsing';
+import { collapsibleHeader, makeCollapsible } from './collapsible';
 
 let rowCounter = 0;
 
@@ -463,14 +464,9 @@ export function createScrapConfig(
   }
 
   container.innerHTML = `
-    <div class="scrap-config">
-      <h3>
-        <label class="section-toggle">
-          <input type="checkbox" id="scrap-enabled" ${initial.enabled !== false ? 'checked' : ''} />
-          Scrap Management
-        </label>
-      </h3>
-      <div class="scrap-fields" id="scrap-fields" style="${initial.enabled === false ? 'display:none;' : ''}">
+    <div class="scrap-config panel-collapsible">
+      ${collapsibleHeader('Scrap Management', `<label class="section-toggle"><input type="checkbox" id="scrap-enabled" ${initial.enabled !== false ? 'checked' : ''} /></label>`)}
+      <div class="scrap-fields" id="scrap-fields" data-collapse-body>
         <div class="field">
           <label>Min Edge Length (in)</label>
           <input type="number" id="scrap-min-area" value="${initial.minScrapEdge}" step="0.25" min="0.25" max="24" />
@@ -509,15 +505,13 @@ export function createScrapConfig(
     };
   }
 
-  document.getElementById('scrap-enabled')!.addEventListener('change', () => {
-    const enabled = (document.getElementById('scrap-enabled') as HTMLInputElement).checked;
-    document.getElementById('scrap-fields')!.style.display = enabled ? '' : 'none';
-    persist(); onChange();
-  });
+  document.getElementById('scrap-enabled')!.addEventListener('change', () => { persist(); onChange(); });
   for (const id of ['scrap-min-area', 'scrap-edge-margin', 'scrap-disc-margin']) {
     document.getElementById(id)!.addEventListener('input', () => { persist(); onChange(); });
   }
   document.getElementById('scrap-density')!.addEventListener('change', () => { persist(); onChange(); });
+
+  makeCollapsible(container.querySelector('.scrap-config')!, 'scrap');
 
   return { getConfig };
 }
@@ -553,14 +547,9 @@ export function createScoreConfig(
   const v2Settings = initial.smartV2Settings;
 
   container.innerHTML = `
-    <div class="score-config">
-      <h3>
-        <label class="section-toggle">
-          <input type="checkbox" id="score-enabled" ${initial.enabled !== false ? 'checked' : ''} />
-          Score Lines
-        </label>
-      </h3>
-      <div class="score-fields" id="score-fields" style="${initial.enabled === false ? 'display:none;' : ''}">
+    <div class="score-config panel-collapsible">
+      ${collapsibleHeader('Score Lines', `<label class="section-toggle"><input type="checkbox" id="score-enabled" ${initial.enabled !== false ? 'checked' : ''} /></label>`)}
+      <div class="score-fields" id="score-fields" data-collapse-body>
         <div class="field">
           <label>Mode</label>
           <select id="score-mode">
@@ -710,12 +699,8 @@ export function createScoreConfig(
     };
   }
 
-  // Master enable toggle
-  document.getElementById('score-enabled')!.addEventListener('change', () => {
-    const enabled = (document.getElementById('score-enabled') as HTMLInputElement).checked;
-    document.getElementById('score-fields')!.style.display = enabled ? '' : 'none';
-    persist(); onChange();
-  });
+  // Master enable toggle — only controls generation, not panel visibility
+  document.getElementById('score-enabled')!.addEventListener('change', () => { persist(); onChange(); });
 
   // Mode selector
   document.getElementById('score-mode')!.addEventListener('change', () => {
@@ -762,6 +747,8 @@ export function createScoreConfig(
   for (const id of ['v2-min-hand-break', 'v2-max-bridge', 'v2-area-min-gap', 'v2-shape-margin', 'v2-min-length']) {
     document.getElementById(id)!.addEventListener('input', () => { persist(); onChange(); });
   }
+
+  makeCollapsible(container.querySelector('.score-config')!, 'score');
 
   return { getConfig };
 }

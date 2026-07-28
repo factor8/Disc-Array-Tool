@@ -1,15 +1,39 @@
-import { OptimizationMode, NestingResult, NestingConfig, NestingCorner, NestingDirection, SheetConfig } from '../core/types';
+import { OptimizationMode, NestingResult, NestingConfig, NestingCorner, NestingDirection, SheetConfig, ScrapConfig, ScoreConfig, ExportColors } from '../core/types';
 import { exportPerSheet, exportCombined, downloadFile, downloadAllFiles, downloadBlob } from '../core/dxfExport';
 import { exportPdf } from '../core/pdfExport';
+import { DEFAULT_EXPORT_COLORS } from '../core/exportUtils';
+import { collapsibleHeader, makeCollapsible } from './collapsible';
 
 const NESTING_STORAGE_KEY = 'disc-array-tool-nesting';
 const EXPORT_STORAGE_KEY = 'disc-array-tool-export';
+const COLORS_STORAGE_KEY = 'disc-array-tool-colors';
+const SCRAP_STORAGE_KEY = 'disc-array-tool-scrap';
+const SCORE_STORAGE_KEY = 'disc-array-tool-score';
+const DISCS_STORAGE_KEY = 'disc-array-tool-discs';
+const DEFAULTS_STORAGE_KEY = 'disc-array-tool-defaults';
 
 interface NestingSettings {
   mode: OptimizationMode;
   corner: NestingCorner;
   direction: NestingDirection;
   minUtilization?: number;
+}
+
+/** A snapshot of every non-disc setting the user can save as their defaults. */
+export interface DefaultsSnapshot {
+  sheet: SheetConfig;
+  nesting: NestingSettings;
+  scrap: ScrapConfig;
+  score: ScoreConfig;
+  colors: ExportColors;
+}
+
+function loadExportColors(): ExportColors {
+  const raw = localStorage.getItem(COLORS_STORAGE_KEY);
+  if (raw) {
+    try { return { ...DEFAULT_EXPORT_COLORS, ...JSON.parse(raw) }; } catch { /* use defaults */ }
+  }
+  return { ...DEFAULT_EXPORT_COLORS };
 }
 
 function loadNestingSettings(): NestingSettings | null {
@@ -55,8 +79,9 @@ export function createNestingControls(
 
   const initialMinUtilPct = Math.round(initialMinUtil * 100);
   container.innerHTML = `
-    <div class="nesting-controls">
-      <h3>Nesting</h3>
+    <div class="nesting-controls panel-collapsible">
+      ${collapsibleHeader('Nesting')}
+      <div data-collapse-body>
       <div class="toggle-field">
         <label class="toggle-label">
           <span>Optimization</span>
@@ -94,6 +119,7 @@ export function createNestingControls(
           <label>Spacing / Kerf (in)</label>
           <input type="number" id="sheet-spacing" value="${initialSpacing}" step="0.01" min="0" />
         </div>
+      </div>
       </div>
     </div>
   `;
@@ -145,6 +171,8 @@ export function createNestingControls(
     onChange();
   });
 
+  makeCollapsible(container.querySelector('.nesting-controls')!, 'nesting');
+
   return {
     getMode,
     getNestingConfig(): NestingConfig {
@@ -159,7 +187,8 @@ export function createNestingControls(
 
 export function createExportControls(
   container: HTMLElement,
-  getResult: () => NestingResult | null
+  getResult: () => NestingResult | null,
+  getColors: () => ExportColors = loadExportColors
 ): void {
   const savedFormat = localStorage.getItem(EXPORT_STORAGE_KEY) || 'combined';
 
@@ -184,15 +213,125 @@ export function createExportControls(
 
     const format = (document.getElementById('export-format') as HTMLSelectElement).value;
 
+    const colors = getColors();
+
     if (format === 'per-sheet') {
-      const files = exportPerSheet(result);
+      const files = exportPerSheet(result, colors);
       downloadAllFiles(files);
     } else if (format === 'combined') {
-      const file = exportCombined(result);
+      const file = exportCombined(result, colors);
       downloadFile(file.filename, file.content);
     } else if (format === 'pdf') {
-      const blob = exportPdf(result);
+      const blob = exportPdf(result, colors);
       downloadBlob('disc_layout.pdf', blob);
     }
+  });
+}
+
+/**
+ * Export color panel. Lets the user recolor each exported line type (sheet
+ * boundary, disc cuts, disassembly cuts, score lines) without touching the
+ * on-screen preview. Colors persist to localStorage and are read at export
+ * time by createExportControls' getColors().
+ */
+export function createColorControls(
+  container: HTMLElement
+): { getColors: () => ExportColors } {
+  const initial = loadExportColors();
+
+  const swatches: { key: keyof ExportColors; label: string }[] = [
+    { key: 'boundary', label: 'Sheet Boundary' },
+    { key: 'cuts', label: 'Disc Cuts' },
+    { key: 'disassembly', label: 'Disassembly' },
+    { key: 'score', label: 'Score Lines' },
+  ];
+
+  container.innerHTML = `
+    <div class="color-config panel-collapsible">
+      ${collapsibleHeader('Export Colors')}
+      <div data-collapse-body>
+        <p class="color-hint">Applied to exported DXF/PDF files only — the preview is unchanged.</p>
+        <div class="color-fields">
+          ${swatches.map(s => `
+            <label class="color-field">
+              <input type="color" id="color-${s.key}" value="${initial[s.key]}" />
+              <span>${s.label}</span>
+            </label>
+          `).join('')}
+        </div>
+      </div>
+    </div>
+  `;
+
+  function getColors(): ExportColors {
+    const read = (key: keyof ExportColors) =>
+      (document.getElementById(`color-${key}`) as HTMLInputElement).value.toUpperCase();
+    return {
+      boundary: read('boundary'),
+      cuts: read('cuts'),
+      disassembly: read('disassembly'),
+      score: read('score'),
+    };
+  }
+
+  for (const s of swatches) {
+    document.getElementById(`color-${s.key}`)!.addEventListener('input', () => {
+      localStorage.setItem(COLORS_STORAGE_KEY, JSON.stringify(getColors()));
+    });
+  }
+
+  makeCollapsible(container.querySelector('.color-config')!, 'colors');
+
+  return { getColors };
+}
+
+/**
+ * "Set as Defaults" / "Reset to Defaults" controls.
+ *
+ * Set captures the current sheet, nesting, scrap, and score settings (never the
+ * discs) into a saved baseline. Reset writes that baseline back into each
+ * section's storage, clears the disc list to start a fresh order, and reloads
+ * so every section re-initializes cleanly from storage.
+ */
+export function createDefaultsControls(
+  container: HTMLElement,
+  getSnapshot: () => DefaultsSnapshot,
+  builtinDefaults: DefaultsSnapshot
+): void {
+  container.innerHTML = `
+    <div class="defaults-controls">
+      <button class="btn-secondary btn-small" id="set-defaults-btn"
+        title="Save the current sheet, nesting, scrap, and score settings as your defaults (discs are not included)">Set as Defaults</button>
+      <button class="btn-secondary btn-small" id="reset-defaults-btn"
+        title="Restore settings to your saved defaults and clear the disc list">Reset to Defaults</button>
+    </div>
+  `;
+
+  const setBtn = document.getElementById('set-defaults-btn') as HTMLButtonElement;
+  setBtn.addEventListener('click', () => {
+    localStorage.setItem(DEFAULTS_STORAGE_KEY, JSON.stringify(getSnapshot()));
+    const original = setBtn.textContent;
+    setBtn.textContent = 'Saved ✓';
+    setBtn.disabled = true;
+    setTimeout(() => { setBtn.textContent = original; setBtn.disabled = false; }, 1200);
+  });
+
+  document.getElementById('reset-defaults-btn')!.addEventListener('click', () => {
+    if (!confirm('Reset all settings to your saved defaults and clear the disc list?')) return;
+
+    let snapshot = builtinDefaults;
+    const raw = localStorage.getItem(DEFAULTS_STORAGE_KEY);
+    if (raw) {
+      try { snapshot = { ...builtinDefaults, ...JSON.parse(raw) }; } catch { /* fall back to built-in */ }
+    }
+
+    localStorage.setItem(SHEET_STORAGE_KEY, JSON.stringify(snapshot.sheet));
+    localStorage.setItem(NESTING_STORAGE_KEY, JSON.stringify(snapshot.nesting));
+    localStorage.setItem(SCRAP_STORAGE_KEY, JSON.stringify(snapshot.scrap));
+    localStorage.setItem(SCORE_STORAGE_KEY, JSON.stringify(snapshot.score));
+    if (snapshot.colors) localStorage.setItem(COLORS_STORAGE_KEY, JSON.stringify(snapshot.colors));
+    localStorage.removeItem(DISCS_STORAGE_KEY);
+
+    location.reload();
   });
 }

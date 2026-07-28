@@ -286,6 +286,15 @@ button:active {
   background: rgba(233, 69, 96, 0.1);
 }
 
+.defaults-controls {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid #2a3550;
+}
+
 .form-actions {
   display: flex;
   gap: 8px;
@@ -520,6 +529,39 @@ button:active {
   height: 14px;
 }
 
+/* ── Collapsible panels ────────────────────── */
+.panel-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.panel-title {
+  flex: 1;
+}
+
+.collapse-chevron {
+  display: inline-block;
+  font-size: 0.7rem;
+  color: #888;
+  transform: rotate(90deg); /* expanded → points down */
+  transition: transform 0.15s ease;
+}
+
+.panel-collapsible.collapsed .collapse-chevron {
+  transform: rotate(0deg); /* collapsed → points right */
+}
+
+.panel-collapsible.collapsed .panel-header {
+  margin-bottom: 0;
+}
+
+.panel-header:hover .collapse-chevron {
+  color: #e0e0e0;
+}
+
 /* ── Preview ───────────────────────────────── */
 #preview-container {
   background: #16213e;
@@ -710,4 +752,58 @@ canvas {
   outline: none;
   border-color: #e94560;
   box-shadow: 0 0 0 3px rgba(233, 69, 96, 0.15);
+}
+
+/* ── Export Colors ─────────────────────────── */
+.color-config {
+  margin-top: 12px;
+  padding: 10px 12px;
+  background: #16213e;
+  border-radius: 6px;
+  border: 1px solid #1e2d4a;
+  border-top: 2px solid #00ffff;
+}
+
+.color-config h3 {
+  font-size: 0.75rem;
+  margin-bottom: 4px;
+  color: #bbb;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-weight: 600;
+}
+
+.color-hint {
+  font-size: 0.65rem;
+  color: #777;
+  margin-bottom: 10px;
+}
+
+.color-fields {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.color-field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8rem;
+  color: #ccc;
+  cursor: pointer;
+}
+
+.color-field input[type="color"] {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid #2a3550;
+  border-radius: 5px;
+  background: #0f1a30;
+  cursor: pointer;
+}
+
+.color-field input[type="color"]:hover {
+  border-color: #3a4a6a;
 }

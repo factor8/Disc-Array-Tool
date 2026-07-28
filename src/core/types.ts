@@ -111,3 +111,15 @@ export interface ScoreLine {
   x2: number;
   y2: number;
 }
+
+/**
+ * Per-line-type colors applied only to exported files (DXF/PDF), not the
+ * on-screen preview. Each value is a '#RRGGBB' hex string. Laser/CNC software
+ * typically maps color to operation, so these are worth tuning per shop.
+ */
+export interface ExportColors {
+  boundary: string;    // sheet outline
+  cuts: string;        // disc circles + center holes
+  disassembly: string; // scrap cuts
+  score: string;       // score lines
+}

@@ -1,20 +1,21 @@
 import { jsPDF } from 'jspdf';
-import { NestingResult, SheetLayout } from './types';
-import { buildDiscLegend } from './exportUtils';
+import { NestingResult, SheetLayout, ExportColors } from './types';
+import { buildDiscLegend, DEFAULT_EXPORT_COLORS, hexToRgb } from './exportUtils';
 
 function drawSheetPdf(
   doc: jsPDF,
   sheet: SheetLayout,
   sheetIndex: number,
-  totalSheets: number
+  totalSheets: number,
+  colors: ExportColors
 ) {
-  // Sheet outline — cyan, hairline
-  doc.setDrawColor(0, 255, 255);
+  // Sheet outline — hairline
+  doc.setDrawColor(...hexToRgb(colors.boundary));
   doc.setLineWidth(0.01);
   doc.rect(0, 0, sheet.width, sheet.height, 'S');
 
-  // Disc circles — red, no fill, hairline
-  doc.setDrawColor(255, 0, 0);
+  // Disc circles — no fill, hairline
+  doc.setDrawColor(...hexToRgb(colors.cuts));
   doc.setLineWidth(0.01);
   for (const disc of sheet.discs) {
     doc.circle(disc.x, disc.y, disc.diameter / 2, 'S');
@@ -23,9 +24,9 @@ function drawSheetPdf(
     }
   }
 
-  // Disassembly (scrap cuts) — magenta/pink, hairline, L/C shaped
+  // Disassembly (scrap cuts) — hairline, L/C shaped
   if (sheet.scrapCuts?.length) {
-    doc.setDrawColor(255, 0, 255);
+    doc.setDrawColor(...hexToRgb(colors.disassembly));
     doc.setLineWidth(0.01);
     for (const cut of sheet.scrapCuts) {
       const x1 = cut.x;
@@ -41,9 +42,9 @@ function drawSheetPdf(
     }
   }
 
-  // Score lines — green, hairline
+  // Score lines — hairline
   if (sheet.scoreLines?.length) {
-    doc.setDrawColor(0, 128, 0);
+    doc.setDrawColor(...hexToRgb(colors.score));
     doc.setLineWidth(0.01);
     for (const line of sheet.scoreLines) {
       doc.line(line.x1, line.y1, line.x2, line.y2);
@@ -68,7 +69,10 @@ function drawSheetPdf(
 }
 
 /** Export all sheets as a multi-page PDF at full material size */
-export function exportPdf(result: NestingResult): Blob {
+export function exportPdf(
+  result: NestingResult,
+  colors: ExportColors = DEFAULT_EXPORT_COLORS
+): Blob {
   const firstSheet = result.sheets[0];
   const textMargin = 3; // extra inches below sheet for text
 
@@ -89,7 +93,7 @@ export function exportPdf(result: NestingResult): Blob {
       );
     }
 
-    drawSheetPdf(doc, sheet, i, result.totalSheets);
+    drawSheetPdf(doc, sheet, i, result.totalSheets, colors);
   }
 
   return doc.output('blob');

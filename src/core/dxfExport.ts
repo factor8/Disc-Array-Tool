@@ -1,5 +1,5 @@
-import { NestingResult, SheetLayout, ScrapCut } from './types';
-import { buildDiscLegend } from './exportUtils';
+import { NestingResult, SheetLayout, ScrapCut, ExportColors } from './types';
+import { buildDiscLegend, DEFAULT_EXPORT_COLORS, hexToInt } from './exportUtils';
 
 // dxf-writer uses CommonJS default export
 import Drawing from 'dxf-writer';
@@ -75,6 +75,18 @@ function scrapCutPolylines(
   return polylines;
 }
 
+/**
+ * Add a layer whose displayed color is an exact RGB (DXF true color, group
+ * code 420) rather than a palette index, so exports match the color the user
+ * picked. The ACI argument is kept as a fallback for viewers that ignore true
+ * color.
+ */
+function addColoredLayer(drawing: Drawing, name: string, hex: string, aci: number) {
+  drawing.addLayer(name, aci, 'CONTINUOUS');
+  drawing.setActiveLayer(name);
+  drawing.setTrueColor(hexToInt(hex));
+}
+
 function drawSheetDxf(
   drawing: Drawing,
   sheet: SheetLayout,
@@ -82,13 +94,15 @@ function drawSheetDxf(
   totalSheets: number,
   offsetX: number,
   offsetY: number,
-  layerPrefix: string
+  layerPrefix: string,
+  colors: ExportColors
 ) {
-  // Create typed layers
-  drawing.addLayer(`${layerPrefix}Boundary`, Drawing.ACI.CYAN, 'CONTINUOUS');
-  drawing.addLayer(`${layerPrefix}Cuts`, Drawing.ACI.RED, 'CONTINUOUS');
-  drawing.addLayer(`${layerPrefix}Disassembly`, Drawing.ACI.MAGENTA, 'CONTINUOUS');
-  drawing.addLayer(`${layerPrefix}Score`, Drawing.ACI.GREEN, 'CONTINUOUS');
+  // Create typed layers, colored with the user's export palette
+  addColoredLayer(drawing, `${layerPrefix}Boundary`, colors.boundary, Drawing.ACI.CYAN);
+  addColoredLayer(drawing, `${layerPrefix}Cuts`, colors.cuts, Drawing.ACI.RED);
+  addColoredLayer(drawing, `${layerPrefix}Disassembly`, colors.disassembly, Drawing.ACI.MAGENTA);
+  addColoredLayer(drawing, `${layerPrefix}Score`, colors.score, Drawing.ACI.GREEN);
+  // Text stays ACI 7 (white/black) so it auto-contrasts with any CAD background.
   drawing.addLayer(`${layerPrefix}Text`, Drawing.ACI.WHITE, 'CONTINUOUS');
 
   // Sheet boundary — cyan closed rectangle
@@ -146,7 +160,10 @@ function drawSheetDxf(
 }
 
 /** Export each sheet as a separate DXF file */
-export function exportPerSheet(result: NestingResult): { filename: string; content: string }[] {
+export function exportPerSheet(
+  result: NestingResult,
+  colors: ExportColors = DEFAULT_EXPORT_COLORS
+): { filename: string; content: string }[] {
   const files: { filename: string; content: string }[] = [];
 
   for (let i = 0; i < result.sheets.length; i++) {
@@ -155,7 +172,7 @@ export function exportPerSheet(result: NestingResult): { filename: string; conte
     drawing.setUnits('Inches');
     useCrossPlatformFont(drawing);
 
-    drawSheetDxf(drawing, sheet, i, result.totalSheets, 0, 0, '');
+    drawSheetDxf(drawing, sheet, i, result.totalSheets, 0, 0, '', colors);
 
     files.push({
       filename: `sheet_${i + 1}.dxf`,
@@ -167,7 +184,10 @@ export function exportPerSheet(result: NestingResult): { filename: string; conte
 }
 
 /** Export all sheets into one DXF with layers, gridded 4 columns wide */
-export function exportCombined(result: NestingResult): { filename: string; content: string } {
+export function exportCombined(
+  result: NestingResult,
+  colors: ExportColors = DEFAULT_EXPORT_COLORS
+): { filename: string; content: string } {
   const drawing = new Drawing();
   drawing.setUnits('Inches');
   useCrossPlatformFont(drawing);
@@ -183,7 +203,7 @@ export function exportCombined(result: NestingResult): { filename: string; conte
     const offsetX = col * (sheet.width + sheetGap);
     const offsetY = row * (sheet.height + sheetGap + textSpace);
 
-    drawSheetDxf(drawing, sheet, i, result.totalSheets, offsetX, offsetY, `Sheet${i + 1}_`);
+    drawSheetDxf(drawing, sheet, i, result.totalSheets, offsetX, offsetY, `Sheet${i + 1}_`, colors);
   }
 
   return {
