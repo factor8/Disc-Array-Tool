@@ -12,10 +12,11 @@ import { SheetLayout, ScoreConfig, ScoreLine } from './types';
  *
  * Features, in the order they are generated:
  *
- *   1. Throats — narrow necks of material between two cut edges (disc/disc,
- *      disc/sheet-edge, disc/scrap-rect) with a gap between `minHandBreak`
- *      and `maxNeckWidth`. One tick across the throat at its thinnest point.
- *      Thinner than `minHandBreak` snaps by hand; wider isn't a throat.
+ *   1. Throats — narrow necks of material between two cut edges (disc/disc or
+ *      disc/sheet-edge) with a gap between `minHandBreak` and `maxNeckWidth`.
+ *      One tick across the throat at its thinnest point. Thinner than
+ *      `minHandBreak` snaps by hand; wider isn't a throat. Scrap rects spawn
+ *      no throats — they are cut fully free and fall out.
  *
  *   2. Pinch openings — where two discs (or a disc and the sheet edge) all but
  *      touch, the pinch itself needs no score, but the pockets flaring out on
@@ -174,23 +175,54 @@ function markFrom(a: Pt, b: Pt, f: number, margin: number): ScoreLine | null {
 interface Cast {
   end: Pt;
   length: number;
-  /** Whether the cast stopped at the sheet boundary rather than a disc/scrap rect. */
-  hitEdge: boolean;
+  /**
+   * What stopped the cast: the sheet boundary, a scrap rectangle (both are
+   * places the material is already cut free, so a pocket facing one can be
+   * broken toward it), or null for a disc.
+   */
+  opening: 'edge' | 'rect' | null;
+  /** Inward normal of the opening (undefined when blocked by a disc). */
+  normal?: Pt;
 }
 
 /** March from `p` along a direction until leaving free material. */
 function castFree(p: Pt, ux: number, uy: number, sheet: SheetLayout, rects: Rect[]): Cast {
   const maxDist = Math.hypot(sheet.width, sheet.height);
   let last = p;
-  for (let d = CAST_STEP; d <= maxDist; d += CAST_STEP) {
+  let d = CAST_STEP;
+  for (; d <= maxDist; d += CAST_STEP) {
     const q = { x: p.x + ux * d, y: p.y + uy * d };
     if (!isFree(q, sheet, rects)) break;
     last = q;
   }
-  const eps = CAST_STEP * 1.5;
-  const hitEdge = last.x < eps || last.y < eps ||
-                  last.x > sheet.width - eps || last.y > sheet.height - eps;
-  return { end: last, length: dist(p, last), hitEdge };
+
+  // Classify the first blocked sample.
+  const q = { x: p.x + ux * d, y: p.y + uy * d };
+  let opening: 'edge' | 'rect' | null = null;
+  let normal: Pt | undefined;
+  if (q.x < 0) { opening = 'edge'; normal = { x: 1, y: 0 }; }
+  else if (q.x > sheet.width) { opening = 'edge'; normal = { x: -1, y: 0 }; }
+  else if (q.y < 0) { opening = 'edge'; normal = { x: 0, y: 1 }; }
+  else if (q.y > sheet.height) { opening = 'edge'; normal = { x: 0, y: -1 }; }
+  else {
+    for (const r of rects) {
+      if (q.x > r.x && q.x < r.x + r.w && q.y > r.y && q.y < r.y + r.h) {
+        // Nearest face of the rect, normal pointing back into the material.
+        const faces: [number, Pt][] = [
+          [q.x - r.x, { x: -1, y: 0 }],
+          [r.x + r.w - q.x, { x: 1, y: 0 }],
+          [q.y - r.y, { x: 0, y: -1 }],
+          [r.y + r.h - q.y, { x: 0, y: 1 }],
+        ];
+        faces.sort((a, b) => a[0] - b[0]);
+        opening = 'rect';
+        normal = faces[0][1];
+        break;
+      }
+    }
+  }
+
+  return { end: last, length: dist(p, last), opening, normal };
 }
 
 // ── Step 1: necks ─────────────────────────────────────────────────────
@@ -269,19 +301,8 @@ function collectNecks(sheet: SheetLayout, minGap: number, maxGap: number): Neck[
     }
   }
 
-  // Disc ↔ scrap rectangle: throat runs from the rect's nearest point to the disc.
-  for (const d of sheet.discs) {
-    const r = d.diameter / 2;
-    const center = { x: d.x, y: d.y };
-    for (const rect of rects) {
-      const near = clampToRect(center, rect);
-      const dd = dist(near, center);
-      if (dd === 0) continue;
-      const ux = (center.x - near.x) / dd;
-      const uy = (center.y - near.y) / dd;
-      consider(near, { x: center.x - ux * r, y: center.y - uy * r }, dd - r);
-    }
-  }
+  // No throats against scrap rectangles: a rect is cut fully free, so the
+  // web beside it already has an open border and breaks toward the void.
 
   return found;
 }
@@ -317,19 +338,9 @@ function collectPinchMarks(
 ): FeatureMark[] {
   const marks: FeatureMark[] = [];
 
-  const eps = CAST_STEP * 2;
-
-  /** Inward normal of the sheet edge nearest to a boundary point. */
-  const edgeNormal = (q: Pt): Pt => {
-    if (q.x < eps) return { x: 1, y: 0 };
-    if (q.x > sheet.width - eps) return { x: -1, y: 0 };
-    if (q.y < eps) return { x: 0, y: 1 };
-    return { x: 0, y: -1 };
-  };
-
   const legsFrom = (P: Pt, vx: number, vy: number) => {
     const probe = castFree(P, vx, vy, sheet, rects);
-    if (!probe.hitEdge) return;
+    if (!probe.opening) return;
 
     // The chevron's vertex sits where the pocket meets the sheet edge, arms
     // angling back in toward the two discs — it opens away from the edge, so
@@ -340,7 +351,10 @@ function collectPinchMarks(
     const bx = -vx;
     const by = -vy;
     const legs: FeatureMark[] = [];
-    for (const sgn of [1, -1]) {
+    // Chevron arms only where the pocket meets the sheet edge; a pocket facing
+    // a scrap-rect void gets at most the single dash below — the hand-marked
+    // references never chevron against a rect.
+    if (probe.opening === 'edge') for (const sgn of [1, -1]) {
       // The inward direction rotated by ±45°.
       const lx = (bx - sgn * by) * SIN45;
       const ly = (sgn * bx + by) * SIN45;
@@ -361,7 +375,7 @@ function collectPinchMarks(
       // tilted bisector lands at an odd angle near a corner and reads wrong;
       // the capped probe also keeps a chain of tangencies from becoming a
       // sheet-length line.
-      const n = edgeNormal(probe.end);
+      const n = probe.normal!;
       if (Math.abs(vx * n.x + vy * n.y) >= 0.92) {
         marks.push({ a: P, b: probe.end });
       }
@@ -392,31 +406,9 @@ function collectPinchMarks(
     }
   }
 
-  // Disc ↔ sheet edge pinches: a disc essentially tangent to an edge splits
-  // the edge strip in two. One 45° leg into each half, leaning away from the
-  // tangency so the crescents on either side break off.
-  for (const disc of sheet.discs) {
-    const r = disc.diameter / 2;
-    const edges: { gap: number; P: Pt; tx: number; ty: number; nx: number; ny: number }[] = [
-      { gap: disc.x - r, P: { x: (disc.x - r) / 2, y: disc.y }, tx: 0, ty: 1, nx: 1, ny: 0 },
-      { gap: sheet.width - disc.x - r, P: { x: (sheet.width + disc.x + r) / 2, y: disc.y }, tx: 0, ty: 1, nx: -1, ny: 0 },
-      { gap: disc.y - r, P: { x: disc.x, y: (disc.y - r) / 2 }, tx: 1, ty: 0, nx: 0, ny: 1 },
-      { gap: sheet.height - disc.y - r, P: { x: disc.x, y: (sheet.height + disc.y + r) / 2 }, tx: 1, ty: 0, nx: 0, ny: -1 },
-    ];
-    for (const e of edges) {
-      if (e.gap > handBreak || e.gap < -0.01) continue;
-      if (!isFree(e.P, sheet, rects)) continue;
-      for (const sgn of [1, -1]) {
-        const lx = (e.tx * sgn + e.nx) * SIN45;
-        const ly = (e.ty * sgn + e.ny) * SIN45;
-        const cast = castFree(e.P, lx, ly, sheet, rects);
-        if (cast.length <= maxDash &&
-            effectiveLength(cast.length, f, margin) >= minLen) {
-          marks.push({ a: e.P, b: cast.end });
-        }
-      }
-    }
-  }
+  // No marks for disc ↔ sheet-edge tangencies: the crescents beside a
+  // tangency are slivers that fall off on their own once their neighbours
+  // break — the hand-marked references never score them.
 
   return marks;
 }
@@ -476,8 +468,12 @@ interface Grid {
   rows: number;
   /** -1 = obstacle or barrier, otherwise the region id. */
   region: Int32Array;
-  /** 1 where a score line severed material that would otherwise be open. */
+  /** 1 where any score line severed material that would otherwise be open. */
   barrier: Uint8Array;
+  /** 1 where a subdivision cut (not a feature mark) severed material. */
+  cutBarrier: Uint8Array;
+  /** 1 where the cell sits inside a scrap-rect void. */
+  rectMask: Uint8Array;
 }
 
 function cellCenter(c: number, r: number): Pt {
@@ -489,24 +485,38 @@ function cellCenter(c: number, r: number): Pt {
  * then label 4-connected regions. Each region is one piece that would come away
  * if the operator broke along every score.
  */
-function buildRegions(sheet: SheetLayout, lines: ScoreLine[], clearance: number): Grid {
+function buildRegions(
+  sheet: SheetLayout,
+  featureLines: ScoreLine[],
+  cutLines: ScoreLine[],
+  clearance: number
+): Grid {
   const rects = scrapRects(sheet);
   const cols = Math.ceil(sheet.width / GRID);
   const rows = Math.ceil(sheet.height / GRID);
   const region = new Int32Array(cols * rows).fill(-1);
   const barrier = new Uint8Array(cols * rows);
+  const cutBarrier = new Uint8Array(cols * rows);
+  const rectMask = new Uint8Array(cols * rows);
 
   const open: boolean[] = new Array(cols * rows).fill(false);
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
-      open[r * cols + c] = isFree(cellCenter(c, r), sheet, rects, clearance);
+      const p = cellCenter(c, r);
+      open[r * cols + c] = isFree(p, sheet, rects, clearance);
+      for (const rect of rects) {
+        if (p.x > rect.x && p.x < rect.x + rect.w && p.y > rect.y && p.y < rect.y + rect.h) {
+          rectMask[r * cols + c] = 1;
+          break;
+        }
+      }
     }
   }
 
   // Close cells straddling a score line. The band is slightly over one cell
   // wide so a diagonal barrier can't be leaked through by 4-connected fill.
   const band = GRID * 0.6;
-  for (const line of lines) {
+  const closeAlong = (line: ScoreLine, isCut: boolean) => {
     const minC = Math.max(0, Math.floor((Math.min(line.x1, line.x2) - band) / GRID));
     const maxC = Math.min(cols - 1, Math.ceil((Math.max(line.x1, line.x2) + band) / GRID));
     const minR = Math.max(0, Math.floor((Math.min(line.y1, line.y2) - band) / GRID));
@@ -517,7 +527,7 @@ function buildRegions(sheet: SheetLayout, lines: ScoreLine[], clearance: number)
     for (let r = minR; r <= maxR; r++) {
       for (let c = minC; c <= maxC; c++) {
         const idx = r * cols + c;
-        if (!open[idx]) continue;
+        if (!open[idx] && !barrier[idx]) continue;
         const p = cellCenter(c, r);
         const t = vlen2 === 0 ? 0 : Math.max(0, Math.min(1, ((p.x - line.x1) * vx + (p.y - line.y1) * vy) / vlen2));
         const dx = p.x - (line.x1 + vx * t);
@@ -525,10 +535,13 @@ function buildRegions(sheet: SheetLayout, lines: ScoreLine[], clearance: number)
         if (dx * dx + dy * dy <= band * band) {
           open[idx] = false;
           barrier[idx] = 1;
+          if (isCut) cutBarrier[idx] = 1;
         }
       }
     }
-  }
+  };
+  for (const line of featureLines) closeAlong(line, false);
+  for (const line of cutLines) closeAlong(line, true);
 
   // 4-connected flood fill.
   let next = 0;
@@ -555,7 +568,7 @@ function buildRegions(sheet: SheetLayout, lines: ScoreLine[], clearance: number)
     }
   }
 
-  return { cols, rows, region, barrier };
+  return { cols, rows, region, barrier, cutBarrier, rectMask };
 }
 
 interface RegionInfo {
@@ -669,13 +682,16 @@ function refineEndpoint(
 }
 
 /**
- * Is this a true pocket of the web — ringed entirely by cut geometry, never
- * touching the sheet edge and never touching a score line already placed?
+ * Is this a true pocket of the web — ringed by disc edges, with no way to
+ * break it toward anything already open?
  *
  * Such a pocket comes away as one closed piece, so it wants an X through the
- * middle rather than being sliced off one side. A piece that borders an earlier
- * score line is not that: it is part of a larger area already being broken
- * down, and X-ing it just lays crossed lines over ground that wants a grid.
+ * middle rather than being sliced off one side. Three things disqualify it:
+ * reaching the sheet edge, bordering a scrap-rect void (both are open — the
+ * pocket breaks toward them), and bordering a subdivision cut (then it is a
+ * piece of open ground already being broken down on a grid, not a diamond).
+ * Feature marks nearby do NOT disqualify — every real diamond has throat
+ * ticks and dashes around it.
  */
 function isEnclosed(info: RegionInfo, grid: Grid, sheet: SheetLayout): boolean {
   const edge = GRID * 1.5;
@@ -696,11 +712,39 @@ function isEnclosed(info: RegionInfo, grid: Grid, sheet: SheetLayout): boolean {
         const nc = c + dc;
         const nr = r + dr;
         if (nc < 0 || nr < 0 || nc >= grid.cols || nr >= grid.rows) continue;
-        if (grid.barrier[nr * grid.cols + nc]) return false;
+        const n = nr * grid.cols + nc;
+        if (grid.cutBarrier[n] || grid.rectMask[n]) return false;
       }
     }
   }
   return true;
+}
+
+/**
+ * Does this region wrap around a disc — an annulus of lobes joined through
+ * their throats, like the ring of waste around a filler disc in a diamond?
+ * A ring must not be X'd: its throat ticks already divide it, and each lobe
+ * then breaks out by hand. X-ing it cascades — every X splits the ring into
+ * pieces that still wrap the disc and get X'd again next pass.
+ */
+function wrapsDisc(info: RegionInfo, grid: Grid, sheet: SheetLayout): boolean {
+  for (const disc of sheet.discs) {
+    const reach = disc.diameter / 2 + GRID * 1.5;
+    if (disc.x + reach < info.minX || disc.x - reach > info.maxX ||
+        disc.y + reach < info.minY || disc.y - reach > info.maxY) continue;
+
+    let sides = 0;
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+      const px = disc.x + dx * reach;
+      const py = disc.y + dy * reach;
+      const c = Math.floor(px / GRID);
+      const r = Math.floor(py / GRID);
+      if (c < 0 || r < 0 || c >= grid.cols || r >= grid.rows) continue;
+      if (grid.region[r * grid.cols + c] === info.id) sides++;
+    }
+    if (sides >= 3) return true;
+  }
+  return false;
 }
 
 /** March from `p` along `(ux, uy)` to the far side of the region. */
@@ -968,30 +1012,86 @@ function subdivide(
   barriers: ScoreLine[],
   clearance: number,
   maxPieceSpan: number,
+  enclosedSpan: number,
   minLength: number,
   endMargin: number,
   f: number
 ): ScoreLine[] {
   const rects = scrapRects(sheet);
   const emitted: ScoreLine[] = [];
+  const cutLines: ScoreLine[] = [];
+
+  // Judge each pocket's character on pure geometry — discs, rects, and the
+  // sheet edge, with no score-line barriers. On that map a ring around a
+  // filler disc is still one annulus (score ticks haven't split it into
+  // lobes), and an empty diamond is one compact pocket. Score-line barriers
+  // would make every throat-ticked lobe look like its own enclosed diamond.
+  // Gaps up to the neck width all get throat ticks, so for pocket identity
+  // they count as walls: seal them via a clearance of half the neck width.
+  // Anything thinner than the neck erodes away entirely (lobes around filler
+  // discs), which is correct — those pockets never earn an X.
+  const geoGrid = buildRegions(sheet, [], [], Math.max(clearance, enclosedSpan / 3));
+  const geoInfo = new Map<number, { xEligible: boolean; ring: boolean }>();
+  for (const gi of summarizeRegions(geoGrid, sheet, rects)) {
+    // Raw cell bounds, not the walked-out ones — the walk crosses sealed
+    // throats into neighbouring pockets and inflates every span.
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    for (const idx of gi.cells) {
+      const c = idx % geoGrid.cols;
+      const pt = cellCenter(c, (idx - c) / geoGrid.cols);
+      if (pt.x < minX) minX = pt.x;
+      if (pt.x > maxX) maxX = pt.x;
+      if (pt.y < minY) minY = pt.y;
+      if (pt.y > maxY) maxY = pt.y;
+    }
+    const w = maxX - minX + GRID;
+    const h = maxY - minY + GRID;
+    // A diamond is compact — roughly square between its four discs. Long
+    // crescent channels between two large arcs stay un-X'd; their throats
+    // already carry ticks.
+    const compact = Math.max(w, h) <= Math.min(w, h) * 1.7;
+    const ring = wrapsDisc(gi, geoGrid, sheet);
+    const xEligible = compact && !ring && isEnclosed(gi, geoGrid, sheet) &&
+      Math.max(w, h) > enclosedSpan;
+    geoInfo.set(gi.id, { xEligible, ring });
+  }
+  const geoOf = (info: RegionInfo): { xEligible: boolean; ring: boolean } | undefined => {
+    const p = interiorPoint(info, geoGrid);
+    const c = Math.floor(p.x / GRID);
+    const r = Math.floor(p.y / GRID);
+    if (c < 0 || r < 0 || c >= geoGrid.cols || r >= geoGrid.rows) return undefined;
+    return geoInfo.get(geoGrid.region[r * geoGrid.cols + c]);
+  };
 
   for (let pass = 0; pass < MAX_SUBDIVIDE_PASSES; pass++) {
-    const grid = buildRegions(sheet, barriers, clearance);
-    const oversized = summarizeRegions(grid, sheet, rects).filter(r => regionSpan(r) > maxPieceSpan);
+    const grid = buildRegions(sheet, barriers, cutLines, clearance);
+    // An enclosed diamond earns its X at a much smaller size than open ground
+    // earns a grid line — the hand-marked references X every empty diamond.
+    const oversized = summarizeRegions(grid, sheet, rects).filter(r => {
+      const geo = geoOf(r);
+      const limit = geo?.xEligible ? enclosedSpan : maxPieceSpan;
+      return regionSpan(r) > limit;
+    });
     if (oversized.length === 0) break;
 
-    const before = barriers.length;
+    const before = cutLines.length;
     for (const info of oversized) {
-      if (barriers.length >= MAX_LINES) return emitted;
+      if (barriers.length + cutLines.length >= MAX_LINES) return emitted;
 
-      // An enclosed pocket comes away whole, so it takes an X through the
-      // middle rather than being cut off one side.
-      const xCuts = isEnclosed(info, grid, sheet)
+      const geo = geoOf(info);
+      // Rings around a filler disc break lobe by lobe at their throats; only
+      // a truly oversized one is worth a cut.
+      if (geo?.ring && regionSpan(info) <= maxPieceSpan) continue;
+
+      // An empty diamond comes away whole, so it takes an X through the
+      // middle rather than being cut off one side; isEnclosed (with the live
+      // barriers) keeps a diamond from being re-X'd once its X exists.
+      const xCuts = geo?.xEligible && isEnclosed(info, grid, sheet)
         ? crossCuts(info, grid, cellMask(info, grid), sheet, rects, clearance, minLength, f, endMargin)
         : [];
 
       if (xCuts.length > 0) {
-        barriers.push(...xCuts);
+        cutLines.push(...xCuts);
         for (const cut of xCuts) {
           const mark = markFrom({ x: cut.x1, y: cut.y1 }, { x: cut.x2, y: cut.y2 }, f, endMargin);
           if (mark) emitted.push(mark);
@@ -1000,7 +1100,7 @@ function subdivide(
         // Grid lines stay full-length — they carry the break across open
         // ground — less the end-margin clearance.
         const gridCuts = lineCut(info, grid, sheet, rects, clearance, minLength, endMargin);
-        barriers.push(...gridCuts);
+        cutLines.push(...gridCuts);
         for (const cut of gridCuts) {
           const trimmed = trim({ x: cut.x1, y: cut.y1 }, { x: cut.x2, y: cut.y2 }, endMargin, 0);
           if (trimmed) emitted.push(trimmed);
@@ -1009,7 +1109,7 @@ function subdivide(
     }
 
     // Whatever is left is a sliver too narrow to score across.
-    if (barriers.length === before) break;
+    if (cutLines.length === before) break;
   }
 
   return emitted;
@@ -1098,6 +1198,7 @@ export function generateWebScoreLines(sheet: SheetLayout, config: ScoreConfig): 
       barriers,
       handBreak / 2,
       Math.max(GRID * 2, settings.maxPieceSpan),
+      Math.max(GRID * 2, settings.maxNeckWidth * 1.5),
       minLen,
       endMargin,
       f
