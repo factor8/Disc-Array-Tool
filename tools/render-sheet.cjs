@@ -213,7 +213,7 @@ function writeComparePage(outDir, rendered) {
     <section>
       <h2>Template ${r.index} <small>${r.discs} discs &middot; ${r.scrapCuts} scrap cuts &middot; ${r.scoreLines} score lines</small></h2>
       <div class="pair">
-        <figure><img src="template-${r.index}.png" alt="render ${r.index}"><figcaption>tool output</figcaption></figure>
+        <figure><img class="render" src="template-${r.index}.png" alt="render ${r.index}"><figcaption>tool output</figcaption></figure>
         <figure>${targetCell}<figcaption>target</figcaption></figure>
       </div>
     </section>`;
@@ -232,9 +232,14 @@ function writeComparePage(outDir, rendered) {
   img { max-height: 85vh; max-width: 45vw; border: 1px solid #333; }
   .missing { display: flex; align-items: center; justify-content: center; width: 20rem; height: 12rem;
              border: 1px dashed #444; color: #666; }
+  body.flipped img.render { transform: scaleY(-1); }
+  label { color: #aaa; font-size: 0.9rem; }
 </style>
+<body class="flipped">
 <h1>Tool output vs. targets</h1>
 <p>Targets come from <code>targets/template-N.png</code>. Re-run <code>npm run render</code> and refresh.</p>
+<p><label><input type="checkbox" checked onchange="document.body.classList.toggle('flipped', this.checked)">
+flip tool output vertically to match DXF-orientation targets</label></p>
 ${rows.join('\n')}
 `;
   const file = path.join(outDir, 'compare.html');
