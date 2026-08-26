@@ -536,6 +536,8 @@ export function createScoreConfig(
         smartSettings: { ...defaults.smartSettings, ...parsed.smartSettings },
         smartV2Toggles: { ...defaults.smartV2Toggles, ...parsed.smartV2Toggles },
         smartV2Settings: { ...defaults.smartV2Settings, ...parsed.smartV2Settings },
+        webToggles: { ...defaults.webToggles, ...parsed.webToggles },
+        webSettings: { ...defaults.webSettings, ...parsed.webSettings },
       };
     } catch { /* use defaults */ }
   }
@@ -545,6 +547,8 @@ export function createScoreConfig(
   const settings = initial.smartSettings;
   const v2Toggles = initial.smartV2Toggles;
   const v2Settings = initial.smartV2Settings;
+  const webToggles = initial.webToggles;
+  const webSettings = initial.webSettings;
 
   container.innerHTML = `
     <div class="score-config panel-collapsible">
@@ -556,6 +560,7 @@ export function createScoreConfig(
             <option value="radial"${mode === 'radial' ? ' selected' : ''}>Radial</option>
             <option value="smart"${mode === 'smart' ? ' selected' : ''}>Smart</option>
             <option value="smart-v2"${mode === 'smart-v2' ? ' selected' : ''}>Smart v2</option>
+            <option value="web"${mode === 'web' ? ' selected' : ''}>Negative Space</option>
           </select>
         </div>
 
@@ -654,6 +659,48 @@ export function createScoreConfig(
             <input type="number" id="v2-min-length" value="${initial.minScoreLength}" step="0.1" min="0" />
           </div>
         </div>
+
+        <!-- Negative space mode fields -->
+        <div id="score-fields-web" style="${mode !== 'web' ? 'display:none;' : ''}">
+          <div class="field">
+            <label class="section-toggle">
+              <input type="checkbox" id="web-neck-scores" ${webToggles.neckScores ? 'checked' : ''} />
+              Neck Scores
+            </label>
+          </div>
+          <div class="field smart-sub web-neck-sub" style="${!webToggles.neckScores ? 'display:none;' : ''}">
+            <label title="Throats narrower than this snap by hand, so no score is generated">Min Hand-Break Gap (in)</label>
+            <input type="number" id="web-min-hand-break" value="${webSettings.minHandBreak}" step="0.05" min="0" />
+          </div>
+          <div class="field smart-sub web-neck-sub" style="${!webToggles.neckScores ? 'display:none;' : ''}">
+            <label title="Anything wider than this counts as open area, not a throat">Max Neck Width (in)</label>
+            <input type="number" id="web-max-neck" value="${webSettings.maxNeckWidth}" step="0.25" min="0.25" />
+          </div>
+
+          <div class="field">
+            <label class="section-toggle">
+              <input type="checkbox" id="web-area-subdivision" ${webToggles.areaSubdivision ? 'checked' : ''} />
+              Area Subdivision
+            </label>
+          </div>
+          <div class="field smart-sub web-area-sub" style="${!webToggles.areaSubdivision ? 'display:none;' : ''}">
+            <label title="Any leftover web pocket bigger than this across gets sliced again">Max Piece Span (in)</label>
+            <input type="number" id="web-max-piece-span" value="${webSettings.maxPieceSpan}" step="1" min="1" />
+          </div>
+          <div class="field smart-sub web-area-sub" style="${!webToggles.areaSubdivision ? 'display:none;' : ''}">
+            <label title="Slices shorter than this are not worth cutting; does not apply to necks">Min Slice Length (in)</label>
+            <input type="number" id="web-min-length" value="${initial.minScoreLength}" step="0.1" min="0" />
+          </div>
+
+          <div class="field">
+            <label title="Each mark is this fraction of its full crossing, centered on the feature; the break runs the rest of the way on its own">Mark Length (fraction)</label>
+            <input type="number" id="web-mark-fraction" value="${webSettings.markFraction}" step="0.05" min="0.1" max="1" />
+          </div>
+          <div class="field">
+            <label title="Minimum clearance between each end of a mark and the cut edges; the shorter of this and Mark Length wins">End Margin (in)</label>
+            <input type="number" id="web-end-margin" value="${webSettings.endMargin}" step="0.05" min="0" />
+          </div>
+        </div>
       </div>
     </div>
   `;
@@ -669,6 +716,7 @@ export function createScoreConfig(
       : 'v2-shape-margin';
     const lengthId = currentMode === 'radial' ? 'score-min-length'
       : currentMode === 'smart' ? 'smart-min-length'
+      : currentMode === 'web' ? 'web-min-length'
       : 'v2-min-length';
     const discMarginId = currentMode === 'radial' ? 'score-disc-margin' : 'smart-disc-margin';
 
@@ -696,6 +744,17 @@ export function createScoreConfig(
         maxBridgeWidth: parseNum((document.getElementById('v2-max-bridge') as HTMLInputElement).value, defaults.smartV2Settings.maxBridgeWidth),
         areaSliceMinGap: parseNum((document.getElementById('v2-area-min-gap') as HTMLInputElement).value, defaults.smartV2Settings.areaSliceMinGap),
       },
+      webToggles: {
+        neckScores: (document.getElementById('web-neck-scores') as HTMLInputElement).checked,
+        areaSubdivision: (document.getElementById('web-area-subdivision') as HTMLInputElement).checked,
+      },
+      webSettings: {
+        minHandBreak: parseNum((document.getElementById('web-min-hand-break') as HTMLInputElement).value, defaults.webSettings.minHandBreak),
+        maxNeckWidth: parseNum((document.getElementById('web-max-neck') as HTMLInputElement).value, defaults.webSettings.maxNeckWidth),
+        maxPieceSpan: parseNum((document.getElementById('web-max-piece-span') as HTMLInputElement).value, defaults.webSettings.maxPieceSpan),
+        markFraction: parseNum((document.getElementById('web-mark-fraction') as HTMLInputElement).value, defaults.webSettings.markFraction),
+        endMargin: parseNum((document.getElementById('web-end-margin') as HTMLInputElement).value, defaults.webSettings.endMargin),
+      },
     };
   }
 
@@ -708,6 +767,7 @@ export function createScoreConfig(
     document.getElementById('score-fields-radial')!.style.display = m === 'radial' ? '' : 'none';
     document.getElementById('score-fields-smart')!.style.display = m === 'smart' ? '' : 'none';
     document.getElementById('score-fields-smart-v2')!.style.display = m === 'smart-v2' ? '' : 'none';
+    document.getElementById('score-fields-web')!.style.display = m === 'web' ? '' : 'none';
     persist(); onChange();
   });
 
@@ -745,6 +805,26 @@ export function createScoreConfig(
 
   // Smart v2 number inputs
   for (const id of ['v2-min-hand-break', 'v2-max-bridge', 'v2-area-min-gap', 'v2-shape-margin', 'v2-min-length']) {
+    document.getElementById(id)!.addEventListener('input', () => { persist(); onChange(); });
+  }
+
+  // Negative-space mode toggles (show/hide sub-fields)
+  const webSections: [string, string][] = [
+    ['web-neck-scores', '.web-neck-sub'],
+    ['web-area-subdivision', '.web-area-sub'],
+  ];
+  for (const [toggleId, selector] of webSections) {
+    document.getElementById(toggleId)!.addEventListener('change', () => {
+      const checked = (document.getElementById(toggleId) as HTMLInputElement).checked;
+      container.querySelectorAll<HTMLElement>(selector).forEach(el => {
+        el.style.display = checked ? '' : 'none';
+      });
+      persist(); onChange();
+    });
+  }
+
+  // Negative-space mode number inputs
+  for (const id of ['web-min-hand-break', 'web-max-neck', 'web-max-piece-span', 'web-min-length', 'web-mark-fraction', 'web-end-margin']) {
     document.getElementById(id)!.addEventListener('input', () => { persist(); onChange(); });
   }
 

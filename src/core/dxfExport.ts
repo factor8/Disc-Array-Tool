@@ -1,5 +1,5 @@
-import { NestingResult, SheetLayout, ScrapCut, ExportColors } from './types';
-import { buildDiscLegend, DEFAULT_EXPORT_COLORS, hexToInt } from './exportUtils';
+import { NestingResult, SheetLayout, ScrapCut, ExportOptions } from './types';
+import { buildDiscLegend, DEFAULT_EXPORT_OPTIONS, hexToInt } from './exportUtils';
 
 // dxf-writer uses CommonJS default export
 import Drawing from 'dxf-writer';
@@ -25,16 +25,18 @@ function useCrossPlatformFont(drawing: Drawing) {
  * are walked around the rectangle in cyclic order (top → right → bottom →
  * left); consecutive active edges join into a single chain, and a full
  * rectangle becomes a single closed polyline.
+ *
+ * `toX` / `toY` map sheet space into DXF space (see `drawSheetDxf`).
  */
 function scrapCutPolylines(
   cut: ScrapCut,
-  offsetX: number,
-  offsetY: number
+  toX: (x: number) => number,
+  toY: (y: number) => number
 ): { points: [number, number][]; closed: boolean }[] {
-  const x1 = offsetX + cut.x;
-  const y1 = offsetY + cut.y;
-  const x2 = x1 + cut.width;
-  const y2 = y1 + cut.height;
+  const x1 = toX(cut.x);
+  const y1 = toY(cut.y);
+  const x2 = toX(cut.x + cut.width);
+  const y2 = toY(cut.y + cut.height);
 
   const A: [number, number] = [x1, y1]; // top-left
   const B: [number, number] = [x2, y1]; // top-right
@@ -95,8 +97,15 @@ function drawSheetDxf(
   offsetX: number,
   offsetY: number,
   layerPrefix: string,
-  colors: ExportColors
+  options: ExportOptions
 ) {
+  const { colors } = options;
+  // Layout space is canvas-style (origin top-left, y growing downward, as the
+  // preview and PDF draw it); DXF is y-up. Flip y about the sheet so the
+  // exported geometry isn't mirrored top-to-bottom.
+  const toX = (x: number) => offsetX + x;
+  const toY = (y: number) => offsetY + sheet.height - y;
+
   // Create typed layers, colored with the user's export palette
   addColoredLayer(drawing, `${layerPrefix}Boundary`, colors.boundary, Drawing.ACI.CYAN);
   addColoredLayer(drawing, `${layerPrefix}Cuts`, colors.cuts, Drawing.ACI.RED);
@@ -112,8 +121,8 @@ function drawSheetDxf(
   // Disc circles + center holes — red, no fill
   drawing.setActiveLayer(`${layerPrefix}Cuts`);
   for (const disc of sheet.discs) {
-    const cx = offsetX + disc.x;
-    const cy = offsetY + disc.y;
+    const cx = toX(disc.x);
+    const cy = toY(disc.y);
     drawing.drawCircle(cx, cy, disc.diameter / 2);
     if (disc.centerHole !== null && disc.centerHole > 0) {
       drawing.drawCircle(cx, cy, disc.centerHole / 2);
@@ -125,7 +134,7 @@ function drawSheetDxf(
   if (sheet.scrapCuts?.length) {
     drawing.setActiveLayer(`${layerPrefix}Disassembly`);
     for (const cut of sheet.scrapCuts) {
-      for (const pl of scrapCutPolylines(cut, offsetX, offsetY)) {
+      for (const pl of scrapCutPolylines(cut, toX, toY)) {
         drawing.drawPolyline(pl.points, pl.closed);
       }
     }
@@ -136,33 +145,38 @@ function drawSheetDxf(
     drawing.setActiveLayer(`${layerPrefix}Score`);
     for (const line of sheet.scoreLines) {
       drawing.drawLine(
-        offsetX + line.x1,
-        offsetY + line.y1,
-        offsetX + line.x2,
-        offsetY + line.y2
+        toX(line.x1),
+        toY(line.y1),
+        toX(line.x2),
+        toY(line.y2)
       );
     }
   }
 
-  // Text — outside sheet boundary (above)
+  // Text — below the sheet boundary, matching the PDF. DXF text sits on its
+  // baseline and y grows upward, so each successive line steps *down* by its
+  // own height to read top-to-bottom.
+  if (!options.includeText) return;
+
   drawing.setActiveLayer(`${layerPrefix}Text`);
   const textHeight = 1.5;
-  const textY = offsetY + sheet.height + 2;
+  const labelY = offsetY - 1 - textHeight;
   drawing.drawText(
-    offsetX, textY, textHeight, 0,
+    offsetX, labelY, textHeight, 0,
     `Sheet ${sheetIndex + 1} of ${totalSheets} - ${sheet.discs.length} discs`
   );
 
   const legend = buildDiscLegend(sheet);
   if (legend) {
-    drawing.drawText(offsetX, textY + textHeight + 0.5, textHeight * 0.75, 0, legend);
+    const legendHeight = textHeight * 0.75;
+    drawing.drawText(offsetX, labelY - 0.5 - legendHeight, legendHeight, 0, legend);
   }
 }
 
 /** Export each sheet as a separate DXF file */
 export function exportPerSheet(
   result: NestingResult,
-  colors: ExportColors = DEFAULT_EXPORT_COLORS
+  options: ExportOptions = DEFAULT_EXPORT_OPTIONS
 ): { filename: string; content: string }[] {
   const files: { filename: string; content: string }[] = [];
 
@@ -172,7 +186,7 @@ export function exportPerSheet(
     drawing.setUnits('Inches');
     useCrossPlatformFont(drawing);
 
-    drawSheetDxf(drawing, sheet, i, result.totalSheets, 0, 0, '', colors);
+    drawSheetDxf(drawing, sheet, i, result.totalSheets, 0, 0, '', options);
 
     files.push({
       filename: `sheet_${i + 1}.dxf`,
@@ -186,14 +200,15 @@ export function exportPerSheet(
 /** Export all sheets into one DXF with layers, gridded 4 columns wide */
 export function exportCombined(
   result: NestingResult,
-  colors: ExportColors = DEFAULT_EXPORT_COLORS
+  options: ExportOptions = DEFAULT_EXPORT_OPTIONS
 ): { filename: string; content: string } {
   const drawing = new Drawing();
   drawing.setUnits('Inches');
   useCrossPlatformFont(drawing);
 
   const sheetGap = 10;
-  const textSpace = 6;
+  // Row pitch only needs to reserve room for the label block when it's drawn.
+  const textSpace = options.includeText ? 6 : 0;
   const gridCols = 4;
 
   for (let i = 0; i < result.sheets.length; i++) {
@@ -203,7 +218,7 @@ export function exportCombined(
     const offsetX = col * (sheet.width + sheetGap);
     const offsetY = row * (sheet.height + sheetGap + textSpace);
 
-    drawSheetDxf(drawing, sheet, i, result.totalSheets, offsetX, offsetY, `Sheet${i + 1}_`, colors);
+    drawSheetDxf(drawing, sheet, i, result.totalSheets, offsetX, offsetY, `Sheet${i + 1}_`, options);
   }
 
   return {

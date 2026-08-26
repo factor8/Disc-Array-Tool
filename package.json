@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "render": "tsc -p tsconfig.render.json && node tools/render-sheet.cjs"
   },
   "keywords": [],
   "author": "",

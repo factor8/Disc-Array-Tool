@@ -1,6 +1,7 @@
 import { SheetLayout, ScoreConfig, ScoreLine } from './types';
 import { generateSmartScoreLines } from './smartScoreLines';
 import { generateSmartV2ScoreLines } from './smartScoreLinesV2';
+import { generateWebScoreLines } from './webScoreLines';
 
 export const RAY_STEP = 0.125; // march step in inches
 
@@ -56,6 +57,9 @@ export function generateScoreLines(sheet: SheetLayout, config: ScoreConfig): Sco
   }
   if (config.mode === 'smart-v2') {
     return generateSmartV2ScoreLines(sheet, config);
+  }
+  if (config.mode === 'web') {
+    return generateWebScoreLines(sheet, config);
   }
   return generateRadialScoreLines(sheet, config);
 }

@@ -1,0 +1,13 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "module": "CommonJS",
+    "moduleResolution": "Node",
+    "allowImportingTsExtensions": false,
+    "isolatedModules": false,
+    "outDir": ".render-build",
+    "rootDir": "src"
+  },
+  "include": ["src/core/nesting.ts", "src/core/scrapCuts.ts", "src/core/scoreLines.ts", "src/utils/parsing.ts"]
+}

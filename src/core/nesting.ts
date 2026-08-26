@@ -466,6 +466,45 @@ function packTemplated(
   return bestResult ?? packGreedy(discs, config, nestingConfig);
 }
 
+/** Coordinates within this many inches of each other are treated as the same. */
+const LAYOUT_EPSILON = 1e-4;
+
+/**
+ * Build a geometry-only fingerprint of a sheet: sheet size plus every disc's
+ * position, diameter and center hole, rounded to LAYOUT_EPSILON and sorted so
+ * placement order doesn't matter. specId is deliberately excluded — two discs
+ * of the same diameter from different line items cut identically, so sheets
+ * that differ only in which spec a disc came from are the same physical sheet.
+ */
+function layoutSignature(sheet: SheetLayout): string {
+  const q = (n: number) => Math.round(n / LAYOUT_EPSILON);
+  const discs = sheet.discs
+    .map(d => `${q(d.x)},${q(d.y)},${q(d.diameter)},${d.centerHole === null ? 'n' : q(d.centerHole)}`)
+    .sort();
+  return `${q(sheet.width)}x${q(sheet.height)}|${discs.join(';')}`;
+}
+
+/**
+ * Collapse templateIds so that any sheets with identical layouts share one.
+ *
+ * Both packers hand out a fresh templateId per sheet they create (greedy always,
+ * templated for its remainder sheets), so identical sheets were being reported
+ * and colored as distinct layouts. This is the single place that decides what
+ * "same layout" means; the first sheet of a group keeps its id.
+ */
+function mergeIdenticalTemplates(sheets: SheetLayout[]): void {
+  const bySignature = new Map<string, string>();
+  for (const sheet of sheets) {
+    const sig = layoutSignature(sheet);
+    const existing = bySignature.get(sig);
+    if (existing === undefined) {
+      bySignature.set(sig, sheet.templateId);
+    } else {
+      sheet.templateId = existing;
+    }
+  }
+}
+
 export function nestDiscs(
   specs: DiscSpec[],
   config: SheetConfig,
@@ -484,6 +523,8 @@ export function nestDiscs(
       allSheets = packTemplated(discs, specs, config, nestingConfig);
     }
   }
+
+  mergeIdenticalTemplates(allSheets);
 
   const uniqueTemplates = new Set(allSheets.map(s => s.templateId)).size;
   const totalDiscs = specs.reduce((sum, s) => sum + s.count, 0);

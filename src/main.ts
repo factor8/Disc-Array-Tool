@@ -1,4 +1,4 @@
-import { DiscSpec, SheetConfig, ScrapConfig, ScoreConfig, NestingResult, OptimizationMode, NestingConfig } from './core/types';
+import { DiscSpec, SheetConfig, ScrapConfig, ScoreConfig, NestingResult, OptimizationMode, NestingConfig, SheetLayout } from './core/types';
 import { nestDiscs } from './core/nesting';
 import { generateScrapCuts } from './core/scrapCuts';
 import { generateScoreLines } from './core/scoreLines';
@@ -21,9 +21,19 @@ function runNesting(
   currentSpecs = specs;
   currentResult = nestDiscs(specs, config, mode, nestingConfig);
 
+  // Sheets sharing a templateId are identical layouts, so the cuts and scores
+  // only need generating once per template.
+  const cutCache = new Map<string, { scrapCuts: SheetLayout['scrapCuts']; scoreLines: SheetLayout['scoreLines'] }>();
   for (const sheet of currentResult.sheets) {
-    sheet.scrapCuts = scrapConfig.enabled ? generateScrapCuts(sheet, scrapConfig) : [];
-    sheet.scoreLines = scoreConfig.enabled ? generateScoreLines(sheet, scoreConfig) : [];
+    let cached = cutCache.get(sheet.templateId);
+    if (!cached) {
+      sheet.scrapCuts = scrapConfig.enabled ? generateScrapCuts(sheet, scrapConfig) : [];
+      sheet.scoreLines = scoreConfig.enabled ? generateScoreLines(sheet, scoreConfig) : [];
+      cached = { scrapCuts: sheet.scrapCuts, scoreLines: sheet.scoreLines };
+      cutCache.set(sheet.templateId, cached);
+    }
+    sheet.scrapCuts = cached.scrapCuts;
+    sheet.scoreLines = cached.scoreLines;
   }
 
   const previewSection = document.getElementById('preview-section')!;
@@ -73,6 +83,17 @@ function init() {
       minHandBreakDistance: 0.25,
       maxBridgeWidth: 2.0,
       areaSliceMinGap: 1.0,
+    },
+    webToggles: {
+      neckScores: true,
+      areaSubdivision: true,
+    },
+    webSettings: {
+      minHandBreak: 0.25,
+      maxNeckWidth: 3.0,
+      maxPieceSpan: 12,
+      markFraction: 0.5,
+      endMargin: 0,
     },
   };
 

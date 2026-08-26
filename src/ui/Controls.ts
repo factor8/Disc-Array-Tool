@@ -1,4 +1,4 @@
-import { OptimizationMode, NestingResult, NestingConfig, NestingCorner, NestingDirection, SheetConfig, ScrapConfig, ScoreConfig, ExportColors } from '../core/types';
+import { OptimizationMode, NestingResult, NestingConfig, NestingCorner, NestingDirection, SheetConfig, ScrapConfig, ScoreConfig, ExportColors, ExportOptions } from '../core/types';
 import { exportPerSheet, exportCombined, downloadFile, downloadAllFiles, downloadBlob } from '../core/dxfExport';
 import { exportPdf } from '../core/pdfExport';
 import { DEFAULT_EXPORT_COLORS } from '../core/exportUtils';
@@ -6,6 +6,7 @@ import { collapsibleHeader, makeCollapsible } from './collapsible';
 
 const NESTING_STORAGE_KEY = 'disc-array-tool-nesting';
 const EXPORT_STORAGE_KEY = 'disc-array-tool-export';
+const EXPORT_TEXT_STORAGE_KEY = 'disc-array-tool-export-text';
 const COLORS_STORAGE_KEY = 'disc-array-tool-colors';
 const SCRAP_STORAGE_KEY = 'disc-array-tool-scrap';
 const SCORE_STORAGE_KEY = 'disc-array-tool-score';
@@ -191,6 +192,8 @@ export function createExportControls(
   getColors: () => ExportColors = loadExportColors
 ): void {
   const savedFormat = localStorage.getItem(EXPORT_STORAGE_KEY) || 'combined';
+  // Text is on unless the user has explicitly turned it off.
+  const savedText = localStorage.getItem(EXPORT_TEXT_STORAGE_KEY) !== 'false';
 
   container.innerHTML = `
     <div class="export-controls">
@@ -201,10 +204,20 @@ export function createExportControls(
       </select>
       <button class="btn-primary btn-large" id="export-btn">Export</button>
     </div>
+    <label class="export-toggle">
+      <input type="checkbox" id="export-text"${savedText ? ' checked' : ''} />
+      <span>Include sheet label &amp; disc legend</span>
+    </label>
   `;
+
+  const textToggle = document.getElementById('export-text') as HTMLInputElement;
 
   document.getElementById('export-format')!.addEventListener('change', () => {
     localStorage.setItem(EXPORT_STORAGE_KEY, (document.getElementById('export-format') as HTMLSelectElement).value);
+  });
+
+  textToggle.addEventListener('change', () => {
+    localStorage.setItem(EXPORT_TEXT_STORAGE_KEY, String(textToggle.checked));
   });
 
   document.getElementById('export-btn')!.addEventListener('click', () => {
@@ -213,16 +226,19 @@ export function createExportControls(
 
     const format = (document.getElementById('export-format') as HTMLSelectElement).value;
 
-    const colors = getColors();
+    const options: ExportOptions = {
+      colors: getColors(),
+      includeText: textToggle.checked,
+    };
 
     if (format === 'per-sheet') {
-      const files = exportPerSheet(result, colors);
+      const files = exportPerSheet(result, options);
       downloadAllFiles(files);
     } else if (format === 'combined') {
-      const file = exportCombined(result, colors);
+      const file = exportCombined(result, options);
       downloadFile(file.filename, file.content);
     } else if (format === 'pdf') {
-      const blob = exportPdf(result, colors);
+      const blob = exportPdf(result, options);
       downloadBlob('disc_layout.pdf', blob);
     }
   });

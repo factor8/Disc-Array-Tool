@@ -1,4 +1,4 @@
-import { SheetLayout, ExportColors } from './types';
+import { SheetLayout, ExportColors, ExportOptions } from './types';
 
 /** Built-in export colors, matching the tool's original hard-coded palette. */
 export const DEFAULT_EXPORT_COLORS: ExportColors = {
@@ -6,6 +6,12 @@ export const DEFAULT_EXPORT_COLORS: ExportColors = {
   cuts: '#FF0000',        // red
   disassembly: '#FF00FF', // magenta
   score: '#00FF00',       // green
+};
+
+/** Built-in export options. */
+export const DEFAULT_EXPORT_OPTIONS: ExportOptions = {
+  colors: DEFAULT_EXPORT_COLORS,
+  includeText: true,
 };
 
 /** Convert a '#RRGGBB' hex string to an integer 0xRRGGBB (for DXF true color). */

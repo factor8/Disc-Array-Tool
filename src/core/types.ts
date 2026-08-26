@@ -66,7 +66,7 @@ export interface NestingConfig {
   minUtilization?: number; // 0–1, target minimum fill for repeated template sheets (minimize-unique mode only)
 }
 
-export type ScoreMode = 'radial' | 'smart' | 'smart-v2';
+export type ScoreMode = 'radial' | 'smart' | 'smart-v2' | 'web';
 
 export interface SmartScoreToggles {
   gapMarks: boolean;
@@ -89,6 +89,19 @@ export interface SmartV2Toggles {
   areaSubdivision: boolean;     // slice large open areas in negative space
 }
 
+export interface WebScoreToggles {
+  neckScores: boolean;      // score the narrow throats between cut edges
+  areaSubdivision: boolean; // slice oversized pockets of the web
+}
+
+export interface WebScoreSettings {
+  minHandBreak: number;   // throats narrower than this snap by hand — no score (inches)
+  maxNeckWidth: number;   // wider than this isn't a throat, it's open area (inches)
+  maxPieceSpan: number;   // subdivide any web pocket larger than this across (inches)
+  markFraction: number;   // emitted mark length as a fraction of its natural crossing (0–1)
+  endMargin: number;      // stop each score short of the cut edge (inches, 0 = run into it)
+}
+
 export interface ScoreConfig {
   enabled: boolean;            // whether score lines are generated
   mode: ScoreMode;             // 'radial' = starburst, 'smart' = strategic placement, 'smart-v2' = negative-space analysis
@@ -103,6 +116,9 @@ export interface ScoreConfig {
   // Smart v2 settings
   smartV2Toggles: SmartV2Toggles;
   smartV2Settings: SmartV2Settings;
+  // Negative-space ('web') settings
+  webToggles: WebScoreToggles;
+  webSettings: WebScoreSettings;
 }
 
 export interface ScoreLine {
@@ -122,4 +138,11 @@ export interface ExportColors {
   cuts: string;        // disc circles + center holes
   disassembly: string; // scrap cuts
   score: string;       // score lines
+}
+
+/** Everything that shapes an exported file but not the on-screen preview. */
+export interface ExportOptions {
+  colors: ExportColors;
+  /** Draw the sheet label + disc legend below each sheet. */
+  includeText: boolean;
 }

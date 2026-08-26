@@ -1,14 +1,15 @@
 import { jsPDF } from 'jspdf';
-import { NestingResult, SheetLayout, ExportColors } from './types';
-import { buildDiscLegend, DEFAULT_EXPORT_COLORS, hexToRgb } from './exportUtils';
+import { NestingResult, SheetLayout, ExportOptions } from './types';
+import { buildDiscLegend, DEFAULT_EXPORT_OPTIONS, hexToRgb } from './exportUtils';
 
 function drawSheetPdf(
   doc: jsPDF,
   sheet: SheetLayout,
   sheetIndex: number,
   totalSheets: number,
-  colors: ExportColors
+  options: ExportOptions
 ) {
+  const { colors } = options;
   // Sheet outline — hairline
   doc.setDrawColor(...hexToRgb(colors.boundary));
   doc.setLineWidth(0.01);
@@ -52,6 +53,8 @@ function drawSheetPdf(
   }
 
   // Text — below sheet boundary in margin area
+  if (!options.includeText) return;
+
   doc.setTextColor(0, 0, 0);
   doc.setFontSize(14);
   const textY = sheet.height + 1;
@@ -71,10 +74,11 @@ function drawSheetPdf(
 /** Export all sheets as a multi-page PDF at full material size */
 export function exportPdf(
   result: NestingResult,
-  colors: ExportColors = DEFAULT_EXPORT_COLORS
+  options: ExportOptions = DEFAULT_EXPORT_OPTIONS
 ): Blob {
   const firstSheet = result.sheets[0];
-  const textMargin = 3; // extra inches below sheet for text
+  // Extra inches below the sheet for text — only needed when text is drawn.
+  const textMargin = options.includeText ? 3 : 0;
 
   // Create doc with first sheet dimensions
   const doc = new jsPDF({
@@ -93,7 +97,7 @@ export function exportPdf(
       );
     }
 
-    drawSheetPdf(doc, sheet, i, result.totalSheets, colors);
+    drawSheetPdf(doc, sheet, i, result.totalSheets, options);
   }
 
   return doc.output('blob');

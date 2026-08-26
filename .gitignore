@@ -21,3 +21,6 @@ Thumbs.db
 
 # Logs
 *.log
+.render-build/
+.render-out/
+/state.json
