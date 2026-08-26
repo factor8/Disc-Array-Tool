@@ -168,13 +168,78 @@ function main() {
 
   fs.mkdirSync(outDir, { recursive: true });
   const seen = new Set();
+  const rendered = [];
   for (const sheet of result.sheets) {
     if (seen.has(sheet.templateId)) continue;
     seen.add(sheet.templateId);
     const file = path.join(outDir, `template-${seen.size}.png`);
     fs.writeFileSync(file, drawSheet(sheet, 10).toPNG());
+    rendered.push({
+      index: seen.size,
+      discs: sheet.discs.length,
+      scrapCuts: (sheet.scrapCuts || []).length,
+      scoreLines: (sheet.scoreLines || []).length,
+    });
     console.log(`  template ${seen.size}: ${sheet.discs.length} discs, ${(sheet.scrapCuts || []).length} scrap cuts, ${(sheet.scoreLines || []).length} score lines -> ${file}`);
   }
+
+  writeComparePage(outDir, rendered);
+}
+
+/**
+ * Side-by-side page: each template's render next to its hand-marked target
+ * from targets/ (template-N.png or .jpg), when one exists.
+ */
+function writeComparePage(outDir, rendered) {
+  const targetsDir = path.join(__dirname, '..', 'targets');
+  const findTarget = (index) => {
+    for (const ext of ['png', 'jpg', 'jpeg']) {
+      const file = path.join(targetsDir, `template-${index}.${ext}`);
+      if (fs.existsSync(file)) return file;
+    }
+    return null;
+  };
+
+  const rel = (file) => path.relative(outDir, file).split(path.sep).join('/');
+  let withTargets = 0;
+
+  const rows = rendered.map((r) => {
+    const target = findTarget(r.index);
+    if (target) withTargets++;
+    const targetCell = target
+      ? `<img src="${rel(target)}" alt="target ${r.index}">`
+      : '<div class="missing">no target yet</div>';
+    return `
+    <section>
+      <h2>Template ${r.index} <small>${r.discs} discs &middot; ${r.scrapCuts} scrap cuts &middot; ${r.scoreLines} score lines</small></h2>
+      <div class="pair">
+        <figure><img src="template-${r.index}.png" alt="render ${r.index}"><figcaption>tool output</figcaption></figure>
+        <figure>${targetCell}<figcaption>target</figcaption></figure>
+      </div>
+    </section>`;
+  });
+
+  const html = `<!doctype html>
+<meta charset="utf-8">
+<title>Score line comparison</title>
+<style>
+  body { background: #14142a; color: #ddd; font-family: system-ui, sans-serif; margin: 1.5rem; }
+  h2 { margin: 2rem 0 0.5rem; font-size: 1.05rem; }
+  h2 small { color: #999; font-weight: normal; margin-left: 0.75rem; }
+  .pair { display: flex; gap: 1rem; align-items: flex-start; }
+  figure { margin: 0; }
+  figcaption { color: #888; font-size: 0.8rem; margin-top: 0.25rem; }
+  img { max-height: 85vh; max-width: 45vw; border: 1px solid #333; }
+  .missing { display: flex; align-items: center; justify-content: center; width: 20rem; height: 12rem;
+             border: 1px dashed #444; color: #666; }
+</style>
+<h1>Tool output vs. targets</h1>
+<p>Targets come from <code>targets/template-N.png</code>. Re-run <code>npm run render</code> and refresh.</p>
+${rows.join('\n')}
+`;
+  const file = path.join(outDir, 'compare.html');
+  fs.writeFileSync(file, html);
+  console.log(`\ncompare page (${withTargets}/${rendered.length} targets present) -> ${file}`);
 }
 
 main();
