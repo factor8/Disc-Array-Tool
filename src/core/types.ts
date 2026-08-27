@@ -99,6 +99,7 @@ export interface WebScoreSettings {
   maxNeckWidth: number;   // wider than this isn't a throat, it's open area (inches)
   maxPieceSpan: number;   // subdivide any web pocket larger than this across (inches)
   markFraction: number;   // emitted mark length as a fraction of its natural crossing (0–1)
+  maxMarkLength: number;  // absolute cap on emitted mark length (inches)
   endMargin: number;      // stop each score short of the cut edge (inches, 0 = run into it)
 }
 

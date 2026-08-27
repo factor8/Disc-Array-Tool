@@ -145,23 +145,30 @@ function trim(a: Pt, b: Pt, margin: number, minLength: number): ScoreLine | null
 
 /**
  * Emitted length of a mark across a crossing of length `L`: the mark fraction,
- * capped so both ends keep at least `margin` clearance from the cut edges.
- * Taking the shorter of the two lets both controls act as limits instead of
- * stacking — an end margin never trims a mark the fraction already shortened
- * past it.
+ * capped so both ends keep at least `margin` clearance from the cut edges, and
+ * never longer than `cap` — a hand mark is a short crack starter of roughly
+ * constant length no matter how big the pocket it serves. Taking the shortest
+ * lets all three controls act as limits instead of stacking.
  */
-function effectiveLength(L: number, f: number, margin: number): number {
-  return Math.min(L * f, L - margin * 2);
+function effectiveLength(L: number, f: number, margin: number, cap: number): number {
+  return Math.min(L * f, L - margin * 2, cap);
 }
 
-/** The emitted mark for a full crossing `a`–`b`, centred, or null if nothing survives. */
-function markFrom(a: Pt, b: Pt, f: number, margin: number): ScoreLine | null {
+/** The emitted mark for a full crossing `a`–`b`, or null if nothing survives. */
+function markFrom(
+  a: Pt,
+  b: Pt,
+  f: number,
+  margin: number,
+  cap: number,
+  anchored = false
+): ScoreLine | null {
   const L = dist(a, b);
   if (L <= 0) return null;
-  const m = effectiveLength(L, f, margin);
+  const m = effectiveLength(L, f, margin, cap);
   if (m < 0.2) return null;
-  const t0 = 0.5 - m / (2 * L);
-  const t1 = 1 - t0;
+  const t0 = anchored ? margin / L : 0.5 - m / (2 * L);
+  const t1 = anchored ? (margin + m) / L : 0.5 + m / (2 * L);
   const dx = b.x - a.x;
   const dy = b.y - a.y;
   return {
@@ -309,7 +316,16 @@ function collectNecks(sheet: SheetLayout, minGap: number, maxGap: number): Neck[
 
 // ── Pinch openings ────────────────────────────────────────────────────
 
-interface FeatureMark { a: Pt; b: Pt }
+interface FeatureMark {
+  a: Pt;
+  b: Pt;
+  /**
+   * Anchor the emitted mark at the `a` end (offset only by the end margin)
+   * instead of centring it on the crossing. Chevron arms use this — centred,
+   * a capped arm floats mid-pocket and the two arms stop reading as a V.
+   */
+  anchored?: boolean;
+}
 
 const SIN45 = Math.SQRT1_2;
 
@@ -334,6 +350,7 @@ function collectPinchMarks(
   maxDash: number,
   f: number,
   margin: number,
+  cap: number,
   minLen: number
 ): FeatureMark[] {
   const marks: FeatureMark[] = [];
@@ -362,14 +379,14 @@ function collectPinchMarks(
       // The length cap rejects an arm that tunnels down a long thin strip —
       // a cut nearly parallel to the material it should cross severs nothing.
       if (cast.length <= maxDash &&
-          effectiveLength(cast.length, f, margin) >= minLen) {
-        legs.push({ a: V, b: cast.end });
+          effectiveLength(cast.length, f, margin, cap) >= minLen) {
+        legs.push({ a: V, b: cast.end, anchored: true });
       }
     }
 
     if (legs.length > 0) {
       marks.push(...legs);
-    } else if (effectiveLength(probe.length, f, margin) >= minLen && probe.length <= maxDash) {
+    } else if (effectiveLength(probe.length, f, margin, cap) >= minLen && probe.length <= maxDash) {
       // Channel too tight for angled legs — one dash down its centre, but
       // only when the channel faces its edge squarely. A dash on a strongly
       // tilted bisector lands at an odd angle near a corner and reads wrong;
@@ -427,6 +444,7 @@ function collectCornerMarks(
   maxReach: number,
   f: number,
   margin: number,
+  cap: number,
   minLen: number
 ): FeatureMark[] {
   const marks: FeatureMark[] = [];
@@ -453,7 +471,7 @@ function collectCornerMarks(
     // Mark along the corner bisector — from the corner in toward the disc.
     const one = castFree(M, corner.bx, corner.by, sheet, rects);
     const other = castFree(M, -corner.bx, -corner.by, sheet, rects);
-    if (effectiveLength(dist(one.end, other.end), f, margin) >= minLen) {
+    if (effectiveLength(dist(one.end, other.end), f, margin, cap) >= minLen) {
       marks.push({ a: one.end, b: other.end });
     }
   }
@@ -967,7 +985,8 @@ function crossCuts(
   clearance: number,
   minLength: number,
   f: number,
-  margin: number
+  margin: number,
+  cap: number
 ): ScoreLine[] {
   const mid = interiorPoint(info, grid);
 
@@ -994,7 +1013,7 @@ function crossCuts(
   const cuts: ScoreLine[] = [];
   for (const k of [bestK, (bestK + CUT_ANGLES / 2) % CUT_ANGLES]) {
     const { a, b } = chords[k];
-    if (effectiveLength(dist(a, b), f, margin) >= minLength) {
+    if (effectiveLength(dist(a, b), f, margin, cap) >= minLength) {
       cuts.push({ x1: a.x, y1: a.y, x2: b.x, y2: b.y });
     }
   }
@@ -1015,7 +1034,8 @@ function subdivide(
   enclosedSpan: number,
   minLength: number,
   endMargin: number,
-  f: number
+  f: number,
+  cap: number
 ): ScoreLine[] {
   const rects = scrapRects(sheet);
   const emitted: ScoreLine[] = [];
@@ -1087,16 +1107,24 @@ function subdivide(
       // middle rather than being cut off one side; isEnclosed (with the live
       // barriers) keeps a diamond from being re-X'd once its X exists.
       const xCuts = geo?.xEligible && isEnclosed(info, grid, sheet)
-        ? crossCuts(info, grid, cellMask(info, grid), sheet, rects, clearance, minLength, f, endMargin)
+        ? crossCuts(info, grid, cellMask(info, grid), sheet, rects, clearance, minLength, f, endMargin, cap)
         : [];
 
       if (xCuts.length > 0) {
         cutLines.push(...xCuts);
         for (const cut of xCuts) {
-          const mark = markFrom({ x: cut.x1, y: cut.y1 }, { x: cut.x2, y: cut.y2 }, f, endMargin);
+          const mark = markFrom({ x: cut.x1, y: cut.y1 }, { x: cut.x2, y: cut.y2 }, f, endMargin, cap);
           if (mark) emitted.push(mark);
         }
       } else {
+        // Grid lines belong on genuinely open ground only — a big empty field
+        // being diced into liftable pieces. A packed sheet's chains of pockets
+        // are handled by their features; the hand-marked references never run
+        // long cuts through them.
+        const bw = info.maxX - info.minX;
+        const bh = info.maxY - info.minY;
+        if (Math.min(bw, bh) <= maxPieceSpan) continue;
+
         // Grid lines stay full-length — they carry the break across open
         // ground — less the end-margin clearance.
         const gridCuts = lineCut(info, grid, sheet, rects, clearance, minLength, endMargin);
@@ -1167,6 +1195,7 @@ export function generateWebScoreLines(sheet: SheetLayout, config: ScoreConfig): 
   const { webToggles: toggles, webSettings: settings } = config;
   const endMargin = Math.max(0, settings.endMargin);
   const f = Math.min(1, Math.max(0.05, settings.markFraction ?? 0.5));
+  const cap = Math.max(0.25, settings.maxMarkLength ?? 1.5);
   const minLen = config.minScoreLength;
   const handBreak = Math.max(0, settings.minHandBreak);
   const rects = scrapRects(sheet);
@@ -1175,9 +1204,9 @@ export function generateWebScoreLines(sheet: SheetLayout, config: ScoreConfig): 
   // the barrier model so subdivision knows the break it starts will complete.
   const emit: ScoreLine[] = [];
   const barriers: ScoreLine[] = [];
-  const feature = (a: Pt, b: Pt) => {
+  const feature = (a: Pt, b: Pt, anchored = false) => {
     barriers.push({ x1: a.x, y1: a.y, x2: b.x, y2: b.y });
-    const mark = markFrom(a, b, f, endMargin);
+    const mark = markFrom(a, b, f, endMargin, cap, anchored);
     if (mark) emit.push(mark);
   };
 
@@ -1186,8 +1215,8 @@ export function generateWebScoreLines(sheet: SheetLayout, config: ScoreConfig): 
     // Throat ticks are exempt from minScoreLength — a throat is short by
     // definition, and its tick is the most valuable mark on the sheet.
     for (const neck of collectNecks(sheet, handBreak, maxGap)) feature(neck.a, neck.b);
-    for (const m of collectPinchMarks(sheet, rects, handBreak, settings.maxPieceSpan, f, endMargin, minLen)) feature(m.a, m.b);
-    for (const m of collectCornerMarks(sheet, rects, handBreak, settings.maxPieceSpan, f, endMargin, minLen)) feature(m.a, m.b);
+    for (const m of collectPinchMarks(sheet, rects, handBreak, settings.maxPieceSpan, f, endMargin, cap, minLen)) feature(m.a, m.b, m.anchored);
+    for (const m of collectCornerMarks(sheet, rects, handBreak, settings.maxPieceSpan, f, endMargin, cap, minLen)) feature(m.a, m.b);
   }
 
   if (toggles.areaSubdivision) {
@@ -1201,9 +1230,20 @@ export function generateWebScoreLines(sheet: SheetLayout, config: ScoreConfig): 
       Math.max(GRID * 2, settings.maxNeckWidth * 1.5),
       minLen,
       endMargin,
-      f
+      f,
+      cap
     ));
   }
 
-  return dedupe(emit);
+  // A mark lying along the sheet boundary scores material that is already
+  // cut — drop it.
+  const onBoundary = (m: ScoreLine): boolean => {
+    const eps = 0.3;
+    return (m.x1 < eps && m.x2 < eps) ||
+           (m.y1 < eps && m.y2 < eps) ||
+           (m.x1 > sheet.width - eps && m.x2 > sheet.width - eps) ||
+           (m.y1 > sheet.height - eps && m.y2 > sheet.height - eps);
+  };
+
+  return dedupe(emit.filter(m => !onBoundary(m)));
 }

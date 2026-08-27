@@ -697,6 +697,10 @@ export function createScoreConfig(
             <input type="number" id="web-mark-fraction" value="${webSettings.markFraction}" step="0.05" min="0.1" max="1" />
           </div>
           <div class="field">
+            <label title="No mark is drawn longer than this, however big the pocket it serves">Max Mark Length (in)</label>
+            <input type="number" id="web-max-mark-length" value="${webSettings.maxMarkLength}" step="0.25" min="0.25" />
+          </div>
+          <div class="field">
             <label title="Minimum clearance between each end of a mark and the cut edges; the shorter of this and Mark Length wins">End Margin (in)</label>
             <input type="number" id="web-end-margin" value="${webSettings.endMargin}" step="0.05" min="0" />
           </div>
@@ -753,6 +757,7 @@ export function createScoreConfig(
         maxNeckWidth: parseNum((document.getElementById('web-max-neck') as HTMLInputElement).value, defaults.webSettings.maxNeckWidth),
         maxPieceSpan: parseNum((document.getElementById('web-max-piece-span') as HTMLInputElement).value, defaults.webSettings.maxPieceSpan),
         markFraction: parseNum((document.getElementById('web-mark-fraction') as HTMLInputElement).value, defaults.webSettings.markFraction),
+        maxMarkLength: parseNum((document.getElementById('web-max-mark-length') as HTMLInputElement).value, defaults.webSettings.maxMarkLength),
         endMargin: parseNum((document.getElementById('web-end-margin') as HTMLInputElement).value, defaults.webSettings.endMargin),
       },
     };
@@ -824,7 +829,7 @@ export function createScoreConfig(
   }
 
   // Negative-space mode number inputs
-  for (const id of ['web-min-hand-break', 'web-max-neck', 'web-max-piece-span', 'web-min-length', 'web-mark-fraction', 'web-end-margin']) {
+  for (const id of ['web-min-hand-break', 'web-max-neck', 'web-max-piece-span', 'web-min-length', 'web-mark-fraction', 'web-max-mark-length', 'web-end-margin']) {
     document.getElementById(id)!.addEventListener('input', () => { persist(); onChange(); });
   }
 

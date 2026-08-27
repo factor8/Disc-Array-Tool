@@ -47,7 +47,7 @@ const DEFAULTS = {
     smartV2Toggles: { bridgeScoring: true, areaSubdivision: true },
     smartV2Settings: { minHandBreakDistance: 0.25, maxBridgeWidth: 2.0, areaSliceMinGap: 1.0 },
     webToggles: { neckScores: true, areaSubdivision: true },
-    webSettings: { minHandBreak: 0.25, maxNeckWidth: 3.0, maxPieceSpan: 12, markFraction: 0.5, endMargin: 0 },
+    webSettings: { minHandBreak: 0.25, maxNeckWidth: 3.0, maxPieceSpan: 12, markFraction: 0.5, maxMarkLength: 1.5, endMargin: 0 },
   },
 };
 

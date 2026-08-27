@@ -93,6 +93,7 @@ function init() {
       maxNeckWidth: 3.0,
       maxPieceSpan: 12,
       markFraction: 0.5,
+      maxMarkLength: 1.5,
       endMargin: 0,
     },
   };
