@@ -8,7 +8,7 @@
 #   <site>/httpdocs/  document root, receives the built dist/
 #
 # Plesk > Git > Repository Settings > additional deployment actions:
-#   bash /var/www/vhosts/fnmnl.com/disc-array-tool/app/deploy.sh
+#   bash /var/www/vhosts/fnmnl.com/discs.fnmnl.com/app/deploy.sh
 #
 # No argument needed: the docroot is derived as ../httpdocs relative to this
 # script. Pass a path only to publish somewhere else. Either way the target is
