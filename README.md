@@ -52,42 +52,6 @@ Line colors are configurable per type (sheet boundary, disc cuts, disassembly cu
 
 Every panel's settings can be saved as your defaults; they persist in localStorage and reload with the page.
 
-## Project layout
-
-```
-src/
-  main.ts                  App entry — wires the panels together, debounced re-nest on change
-  ui/
-    InputForm.ts           Disc list, sheet config, scrap and score panels
-    Controls.ts            Nesting mode, export format, colors, saved defaults
-    Preview.ts             Canvas rendering with zoom
-    collapsible.ts         Panel collapse behavior
-  core/
-    types.ts               Shared interfaces
-    nesting.ts             Bin packing and template grouping
-    scrapCuts.ts           Occupancy grid → scrap rectangles
-    scoreLines.ts          Score mode dispatch + shared ray-marching helpers
-    smartScoreLines.ts     Smart mode
-    smartScoreLinesV2.ts   Smart v2 (distance field)
-    dxfExport.ts           DXF generation
-    pdfExport.ts           PDF generation
-    exportUtils.ts         Colors, disc legend
-  utils/
-    geometry.ts            Collision and distance helpers
-    parsing.ts             Fractional inch parser
-```
-
-## Deployment
-
-[deploy.sh](deploy.sh) is a Plesk post-deployment hook. The repo is checked out to `/var/www/vhosts/fnmnl.com/repos/disc-array-tool`, and the script builds it and copies `dist/` into the site's document root, which it takes as an argument:
-
-```
-bash /var/www/vhosts/fnmnl.com/repos/disc-array-tool/deploy.sh \
-     /var/www/vhosts/fnmnl.com/discs.fnmnl.com
-```
-
-It refuses to run if the docroot doesn't exist or sits inside the repo, so a wrong argument can't delete the checkout.
-
 ## Notes
 
 [PRD.md](PRD.md) is the original spec and is now partly out of date — most notably, material thickness was dropped from the disc spec, so all discs on a run share one material. [changes.md](changes.md) is a working scratchpad of open issues, mainly around score line placement and inconsistent scrap margins.
