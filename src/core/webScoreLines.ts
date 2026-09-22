@@ -14,24 +14,33 @@ import { SheetLayout, ScoreConfig, ScoreLine } from './types';
  *
  *   1. Throats — narrow necks of material between two cut edges (disc/disc or
  *      disc/sheet-edge) with a gap between `minHandBreak` and `maxNeckWidth`.
- *      One tick across the throat at its thinnest point. Thinner than
+ *      One tick straight across the throat at its thinnest point. Thinner than
  *      `minHandBreak` snaps by hand; wider isn't a throat. Scrap rects spawn
  *      no throats — they are cut fully free and fall out.
  *
- *   2. Pinch openings — where two discs (or a disc and the sheet edge) all but
- *      touch, the pinch itself needs no score, but the pockets flaring out on
- *      either side of it do. Each pocket that opens toward the sheet edge gets
- *      a chevron: vertex at the edge, a pair of 45° arms reaching back in
- *      toward the discs — or a single dash down the middle where the channel
- *      is too tight for arms.
+ *   2. Pinch openings — where two discs all but touch, the pinch itself needs
+ *      no score, but the pockets flaring out on either side of it do. Each
+ *      pocket that opens toward the sheet edge gets a chevron: vertex at the
+ *      edge, a pair of 45° arms reaching back in toward the discs — or a
+ *      single dash down the middle where the channel is too tight for arms.
+ *      Pockets facing a scrap-rect void get nothing: the void is where they
+ *      fall once their neighbours break.
  *
  *   3. Corner separators — a 45° mark across each sheet corner pocket,
  *      splitting the corner triangle off the rest of the web.
  *
- *   4. Oversized pieces — after the feature marks, the web is partitioned into
- *      pockets. An enclosed pocket bigger than `maxPieceSpan` takes an X
- *      through its middle; open areas that big get divided by long scores on
- *      a rough grid until every piece is hand-sized.
+ *   4. Apexes — a disc's closest approach to a sheet edge (gap just past the
+ *      throat range) or to a scrap-rect face (any gap past hand-break) gets a
+ *      pair of 45° slants straddling it, leaning back toward the apex, placed
+ *      where the strip starts to flare. They break the strip at its narrowest
+ *      station the way a chevron breaks a wedge.
+ *
+ *   5. Oversized pieces — after the feature marks, the web is partitioned into
+ *      pockets. An enclosed pocket bigger than 1.5× `maxNeckWidth` takes an X
+ *      spanning its middle (strokes at mark fraction of the crossing, not
+ *      capped like feature ticks); a stretched diamond doubles the short
+ *      stroke instead. Open areas over `maxPieceSpan` get divided by long
+ *      scores on a rough grid until every piece is hand-sized.
  */
 
 // ── Tunables that aren't worth exposing in the UI ──────────────────────
@@ -165,10 +174,15 @@ function markFrom(
 ): ScoreLine | null {
   const L = dist(a, b);
   if (L <= 0) return null;
-  const m = effectiveLength(L, f, margin, cap);
+  // A hand mark stops just shy of the cut edges, not a fixed distance back.
+  // Applied at full strength, the end margin erases exactly the marks that
+  // matter most — a 1" throat minus 0.7" per end is no tick at all, and the
+  // references tick every one of those throats.
+  const m0 = Math.min(margin, L / 4);
+  const m = effectiveLength(L, f, m0, cap);
   if (m < 0.2) return null;
-  const t0 = anchored ? margin / L : 0.5 - m / (2 * L);
-  const t1 = anchored ? (margin + m) / L : 0.5 + m / (2 * L);
+  const t0 = anchored ? m0 / L : 0.5 - m / (2 * L);
+  const t1 = anchored ? (m0 + m) / L : 0.5 + m / (2 * L);
   const dx = b.x - a.x;
   const dy = b.y - a.y;
   return {
@@ -286,25 +300,22 @@ function collectNecks(sheet: SheetLayout, minGap: number, maxGap: number): Neck[
     }
   }
 
-  // Disc ↔ sheet edge: drawn as a 45° tick through the middle of the strip
-  // rather than a perpendicular one — the diagonal is how these get marked by
-  // hand, starting the crack along the direction the strip actually breaks.
+  // Disc ↔ sheet edge: a flat tick straight across the strip at the disc's
+  // closest approach. The hand-marked references draw these perpendicular to
+  // the edge, exactly like a disc↔disc throat tick — not diagonal.
   for (const d of sheet.discs) {
     const r = d.diameter / 2;
     const edges = [
-      { gap: d.x - r, M: { x: (d.x - r) / 2, y: d.y }, tx: 0, ty: 1, nx: 1, ny: 0 },
-      { gap: sheet.width - d.x - r, M: { x: (sheet.width + d.x + r) / 2, y: d.y }, tx: 0, ty: 1, nx: -1, ny: 0 },
-      { gap: d.y - r, M: { x: d.x, y: (d.y - r) / 2 }, tx: 1, ty: 0, nx: 0, ny: 1 },
-      { gap: sheet.height - d.y - r, M: { x: d.x, y: (sheet.height + d.y + r) / 2 }, tx: 1, ty: 0, nx: 0, ny: -1 },
+      { gap: d.x - r, a: { x: 0, y: d.y }, nx: 1, ny: 0 },
+      { gap: sheet.width - d.x - r, a: { x: sheet.width, y: d.y }, nx: -1, ny: 0 },
+      { gap: d.y - r, a: { x: d.x, y: 0 }, nx: 0, ny: 1 },
+      { gap: sheet.height - d.y - r, a: { x: d.x, y: sheet.height }, nx: 0, ny: -1 },
     ];
     for (const e of edges) {
       if (!(e.gap > minGap) || e.gap > maxGap) continue;
-      if (!isFree(e.M, sheet, rects)) continue;
-      const ux = (e.nx - e.tx) * SIN45;
-      const uy = (e.ny - e.ty) * SIN45;
-      const one = castFree(e.M, ux, uy, sheet, rects);
-      const two = castFree(e.M, -ux, -uy, sheet, rects);
-      consider(one.end, two.end, e.gap);
+      const M = { x: e.a.x + e.nx * e.gap / 2, y: e.a.y + e.ny * e.gap / 2 };
+      if (!isFree(M, sheet, rects)) continue;
+      consider(e.a, { x: e.a.x + e.nx * e.gap, y: e.a.y + e.ny * e.gap }, e.gap);
     }
   }
 
@@ -357,7 +368,11 @@ function collectPinchMarks(
 
   const legsFrom = (P: Pt, vx: number, vy: number) => {
     const probe = castFree(P, vx, vy, sheet, rects);
-    if (!probe.opening) return;
+    // Only pockets that open to the sheet edge get pinch marks. A pocket
+    // facing a scrap-rect void gets nothing at all — the void is exactly
+    // where that pocket falls toward once its neighbours break, and the
+    // hand-marked references leave every rect-facing pocket bare.
+    if (probe.opening !== 'edge') return;
 
     // The chevron's vertex sits where the pocket meets the sheet edge, arms
     // angling back in toward the two discs — it opens away from the edge, so
@@ -368,10 +383,7 @@ function collectPinchMarks(
     const bx = -vx;
     const by = -vy;
     const legs: FeatureMark[] = [];
-    // Chevron arms only where the pocket meets the sheet edge; a pocket facing
-    // a scrap-rect void gets at most the single dash below — the hand-marked
-    // references never chevron against a rect.
-    if (probe.opening === 'edge') for (const sgn of [1, -1]) {
+    for (const sgn of [1, -1]) {
       // The inward direction rotated by ±45°.
       const lx = (bx - sgn * by) * SIN45;
       const ly = (sgn * bx + by) * SIN45;
@@ -473,6 +485,110 @@ function collectCornerMarks(
     const other = castFree(M, -corner.bx, -corner.by, sheet, rects);
     if (effectiveLength(dist(one.end, other.end), f, margin, cap) >= minLen) {
       marks.push({ a: one.end, b: other.end });
+    }
+  }
+
+  return marks;
+}
+
+/**
+ * How much deeper than the apex gap the strip must get before an apex flank
+ * mark is placed — the flanks sit where the strip visibly starts to flare.
+ */
+const APEX_FLANK_DEPTH = 1.75;
+
+/**
+ * Flanking slants at a disc's closest approach ("apex") to a sheet edge or a
+ * scrap-rect face, where the gap is too wide to be a throat but the strip
+ * still has to break somewhere near its narrowest point. The references
+ * straddle such an apex with a pair of 45° starters, one on each side,
+ * leaning back toward the apex — the two slants and the apex between them
+ * break the strip the way a chevron breaks a wedge.
+ *
+ * Sheet edges take a pair only above the throat range (a throat already gets
+ * its tick). Rect faces take one anywhere past hand-break width, because no
+ * throats are generated against rects at all. Rect-face tangencies stay bare,
+ * like disc↔edge tangencies — slivers snap off.
+ */
+function collectApexMarks(
+  sheet: SheetLayout,
+  rects: Rect[],
+  handBreak: number,
+  maxNeck: number,
+  f: number,
+  margin: number,
+  cap: number,
+  minLen: number
+): FeatureMark[] {
+  const marks: FeatureMark[] = [];
+  const maxApex = maxNeck * 1.5;
+
+  interface Face {
+    /** Gap between disc surface and the face along its normal. */
+    gap: number;
+    /** Foot of the apex on the face. */
+    foot: Pt;
+    /** Face normal, pointing into the material (toward the disc). */
+    n: Pt;
+    /** Face tangent. */
+    t: Pt;
+    /** Extent of the face along the tangent, as coordinates of foot+t*s. */
+    lo: number;
+    hi: number;
+    minGap: number;
+  }
+
+  for (const d of sheet.discs) {
+    const r = d.diameter / 2;
+    const faces: Face[] = [
+      { gap: d.x - r, foot: { x: 0, y: d.y }, n: { x: 1, y: 0 }, t: { x: 0, y: 1 }, lo: -d.y, hi: sheet.height - d.y, minGap: maxNeck },
+      { gap: sheet.width - d.x - r, foot: { x: sheet.width, y: d.y }, n: { x: -1, y: 0 }, t: { x: 0, y: 1 }, lo: -d.y, hi: sheet.height - d.y, minGap: maxNeck },
+      { gap: d.y - r, foot: { x: d.x, y: 0 }, n: { x: 0, y: 1 }, t: { x: 1, y: 0 }, lo: -d.x, hi: sheet.width - d.x, minGap: maxNeck },
+      { gap: sheet.height - d.y - r, foot: { x: d.x, y: sheet.height }, n: { x: 0, y: -1 }, t: { x: 1, y: 0 }, lo: -d.x, hi: sheet.width - d.x, minGap: maxNeck },
+    ];
+    for (const rc of rects) {
+      // One face per side of the rect, kept only when the disc sits squarely
+      // off that side (its apex foot lands on the face, not past a corner).
+      const sides: Face[] = [
+        { gap: rc.x - d.x - r, foot: { x: rc.x, y: d.y }, n: { x: -1, y: 0 }, t: { x: 0, y: 1 }, lo: rc.y - d.y, hi: rc.y + rc.h - d.y, minGap: handBreak },
+        { gap: d.x - r - (rc.x + rc.w), foot: { x: rc.x + rc.w, y: d.y }, n: { x: 1, y: 0 }, t: { x: 0, y: 1 }, lo: rc.y - d.y, hi: rc.y + rc.h - d.y, minGap: handBreak },
+        { gap: rc.y - d.y - r, foot: { x: d.x, y: rc.y }, n: { x: 0, y: -1 }, t: { x: 1, y: 0 }, lo: rc.x - d.x, hi: rc.x + rc.w - d.x, minGap: handBreak },
+        { gap: d.y - r - (rc.y + rc.h), foot: { x: d.x, y: rc.y + rc.h }, n: { x: 0, y: 1 }, t: { x: 1, y: 0 }, lo: rc.x - d.x, hi: rc.x + rc.w - d.x, minGap: handBreak },
+      ];
+      faces.push(...sides);
+    }
+
+    for (const fc of faces) {
+      if (!(fc.gap > fc.minGap) || fc.gap > maxApex) continue;
+      if (fc.lo > -0.5 || fc.hi < 0.5) continue; // apex foot off the face
+      const mid = { x: fc.foot.x + fc.n.x * fc.gap / 2, y: fc.foot.y + fc.n.y * fc.gap / 2 };
+      if (!isFree(mid, sheet, rects)) continue;
+
+      const dx = Math.min(r, Math.sqrt(Math.max(0, 2 * r * APEX_FLANK_DEPTH - APEX_FLANK_DEPTH ** 2)));
+      for (const s of [1, -1]) {
+        const off = s * dx;
+        if (off < fc.lo + 0.5 || off > fc.hi - 0.5) continue; // past the face end
+        const depth = fc.gap + r - Math.sqrt(Math.max(0, r * r - dx * dx));
+        const M = {
+          x: fc.foot.x + fc.t.x * off + fc.n.x * depth / 2,
+          y: fc.foot.y + fc.t.y * off + fc.n.y * depth / 2,
+        };
+        if (!isFree(M, sheet, rects)) continue;
+        // 45° through the station, leaning back toward the apex. Each cast is
+        // held to the local strip depth so a ray that slips past the disc's
+        // shoulder can't drag the mark out of the strip.
+        const ux = (fc.n.x - s * fc.t.x) * SIN45;
+        const uy = (fc.n.y - s * fc.t.y) * SIN45;
+        const one = castFree(M, ux, uy, sheet, rects);
+        const two = castFree(M, -ux, -uy, sheet, rects);
+        const l1 = Math.min(one.length, depth);
+        const l2 = Math.min(two.length, depth);
+        const a = { x: M.x + ux * l1, y: M.y + uy * l1 };
+        const b = { x: M.x - ux * l2, y: M.y - uy * l2 };
+        if (effectiveLength(dist(a, b), f, margin, cap) >= minLen) {
+          marks.push({ a, b });
+        }
+      }
     }
   }
 
@@ -711,11 +827,35 @@ function refineEndpoint(
  * Feature marks nearby do NOT disqualify — every real diamond has throat
  * ticks and dashes around it.
  */
-function isEnclosed(info: RegionInfo, grid: Grid, sheet: SheetLayout): boolean {
+function isEnclosed(
+  info: RegionInfo,
+  grid: Grid,
+  sheet: SheetLayout,
+  rects: Rect[],
+  clearance: number
+): boolean {
   const edge = GRID * 1.5;
   if (info.minX <= edge || info.minY <= edge ||
       info.maxX >= sheet.width - edge || info.maxY >= sheet.height - edge) {
     return false;
+  }
+
+  // A rasterized region stops `clearance` short of every obstacle, so cell
+  // adjacency alone misses a rect void sitting just past the eroded band —
+  // test against the rects grown by the clearance instead.
+  const reach = clearance + GRID * 1.5;
+  for (const rc of rects) {
+    if (info.maxX > rc.x - reach && info.minX < rc.x + rc.w + reach &&
+        info.maxY > rc.y - reach && info.minY < rc.y + rc.h + reach) {
+      for (const idx of info.cells) {
+        const c = idx % grid.cols;
+        const p = cellCenter(c, (idx - c) / grid.cols);
+        if (p.x > rc.x - reach && p.x < rc.x + rc.w + reach &&
+            p.y > rc.y - reach && p.y < rc.y + rc.h + reach) {
+          return false;
+        }
+      }
+    }
   }
 
   // Diagonal neighbours count too: a 45° cut leaves a diagonal chain of
@@ -731,7 +871,7 @@ function isEnclosed(info: RegionInfo, grid: Grid, sheet: SheetLayout): boolean {
         const nr = r + dr;
         if (nc < 0 || nr < 0 || nc >= grid.cols || nr >= grid.rows) continue;
         const n = nr * grid.cols + nc;
-        if (grid.cutBarrier[n] || grid.rectMask[n]) return false;
+        if (grid.cutBarrier[n]) return false;
       }
     }
   }
@@ -986,7 +1126,8 @@ function crossCuts(
   minLength: number,
   f: number,
   margin: number,
-  cap: number
+  cap: number,
+  enclosedSpan: number
 ): ScoreLine[] {
   const mid = interiorPoint(info, grid);
 
@@ -1011,8 +1152,29 @@ function crossCuts(
   if (bestK < 0) return [];
 
   const cuts: ScoreLine[] = [];
-  for (const k of [bestK, (bestK + CUT_ANGLES / 2) % CUT_ANGLES]) {
-    const { a, b } = chords[k];
+  const long = chords[(bestK + CUT_ANGLES / 2) % CUT_ANGLES];
+  const longLen = dist(long.a, long.b);
+  if (effectiveLength(longLen, f, margin, cap) >= minLength) {
+    cuts.push({ x1: long.a.x, y1: long.a.y, x2: long.b.x, y2: long.b.y });
+  }
+
+  // A stretched diamond gets its short crossing twice, straddling the middle,
+  // instead of once through it — the references draw the long diagonal with a
+  // doubled short stroke whenever the diamond is big enough.
+  const shortAngle = (bestK / CUT_ANGLES) * Math.PI;
+  const su = { x: Math.cos(shortAngle), y: Math.sin(shortAngle) };
+  if (longLen > 2 * enclosedSpan) {
+    const lu = { x: (long.b.x - long.a.x) / longLen, y: (long.b.y - long.a.y) / longLen };
+    for (const off of [-longLen / 4, longLen / 4]) {
+      const C = { x: mid.x + lu.x * off, y: mid.y + lu.y * off };
+      const a = castWithinRegion(C, su.x, su.y, mask, grid, sheet, rects, clearance);
+      const b = castWithinRegion(C, -su.x, -su.y, mask, grid, sheet, rects, clearance);
+      if (effectiveLength(dist(a, b), f, margin, cap) >= minLength) {
+        cuts.push({ x1: a.x, y1: a.y, x2: b.x, y2: b.y });
+      }
+    }
+  } else {
+    const { a, b } = chords[bestK];
     if (effectiveLength(dist(a, b), f, margin, cap) >= minLength) {
       cuts.push({ x1: a.x, y1: a.y, x2: b.x, y2: b.y });
     }
@@ -1050,7 +1212,8 @@ function subdivide(
   // they count as walls: seal them via a clearance of half the neck width.
   // Anything thinner than the neck erodes away entirely (lobes around filler
   // discs), which is correct — those pockets never earn an X.
-  const geoGrid = buildRegions(sheet, [], [], Math.max(clearance, enclosedSpan / 3));
+  const geoClearance = Math.max(clearance, enclosedSpan / 3);
+  const geoGrid = buildRegions(sheet, [], [], geoClearance);
   const geoInfo = new Map<number, { xEligible: boolean; ring: boolean }>();
   for (const gi of summarizeRegions(geoGrid, sheet, rects)) {
     // Raw cell bounds, not the walked-out ones — the walk crosses sealed
@@ -1071,7 +1234,7 @@ function subdivide(
     // already carry ticks.
     const compact = Math.max(w, h) <= Math.min(w, h) * 1.7;
     const ring = wrapsDisc(gi, geoGrid, sheet);
-    const xEligible = compact && !ring && isEnclosed(gi, geoGrid, sheet) &&
+    const xEligible = compact && !ring && isEnclosed(gi, geoGrid, sheet, rects, geoClearance) &&
       Math.max(w, h) > enclosedSpan;
     geoInfo.set(gi.id, { xEligible, ring });
   }
@@ -1106,14 +1269,17 @@ function subdivide(
       // An empty diamond comes away whole, so it takes an X through the
       // middle rather than being cut off one side; isEnclosed (with the live
       // barriers) keeps a diamond from being re-X'd once its X exists.
-      const xCuts = geo?.xEligible && isEnclosed(info, grid, sheet)
-        ? crossCuts(info, grid, cellMask(info, grid), sheet, rects, clearance, minLength, f, endMargin, cap)
+      const xCuts = geo?.xEligible && isEnclosed(info, grid, sheet, rects, clearance)
+        ? crossCuts(info, grid, cellMask(info, grid), sheet, rects, clearance, minLength, f, endMargin, cap, enclosedSpan)
         : [];
 
       if (xCuts.length > 0) {
         cutLines.push(...xCuts);
         for (const cut of xCuts) {
-          const mark = markFrom({ x: cut.x1, y: cut.y1 }, { x: cut.x2, y: cut.y2 }, f, endMargin, cap);
+          // X strokes run at mark fraction of the full crossing, uncapped —
+          // unlike feature ticks, the references draw them spanning the
+          // diamond, not as short crack starters.
+          const mark = markFrom({ x: cut.x1, y: cut.y1 }, { x: cut.x2, y: cut.y2 }, f, endMargin, Number.POSITIVE_INFINITY);
           if (mark) emitted.push(mark);
         }
       } else {
@@ -1217,6 +1383,7 @@ export function generateWebScoreLines(sheet: SheetLayout, config: ScoreConfig): 
     for (const neck of collectNecks(sheet, handBreak, maxGap)) feature(neck.a, neck.b);
     for (const m of collectPinchMarks(sheet, rects, handBreak, settings.maxPieceSpan, f, endMargin, cap, minLen)) feature(m.a, m.b, m.anchored);
     for (const m of collectCornerMarks(sheet, rects, handBreak, settings.maxPieceSpan, f, endMargin, cap, minLen)) feature(m.a, m.b);
+    for (const m of collectApexMarks(sheet, rects, handBreak, settings.maxNeckWidth, f, endMargin, cap, minLen)) feature(m.a, m.b);
   }
 
   if (toggles.areaSubdivision) {

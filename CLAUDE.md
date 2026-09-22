@@ -47,17 +47,38 @@ compare against targets.
 
 ### Hard-won rules already encoded (do not re-litigate without new targets)
 
-- Marks are short crack starters of roughly constant length (~1–1.5", the Max
-  Mark Length setting), never proportional to pocket size.
+- Feature marks are short crack starters of roughly constant length (~1–1.5",
+  the Max Mark Length setting), never proportional to pocket size — but X
+  strokes are exempt: they span the diamond at mark fraction of the crossing,
+  uncapped (zoomed t8 target: ~4.7" strokes in 8–9" diamonds).
+- The end margin scales down on short crossings (min(endMargin, L/4)): at full
+  strength the 0.7" margin erased every tick on throats narrower than ~1.6",
+  which the targets all mark.
+- Throat ticks lie flat, straight across the neck — disc↔disc and disc↔edge
+  alike. (An earlier 45° edge-tick rule came from unzoomed reads; 3–6× crops
+  of three sheets all show flat ticks.)
 - One break per corridor: parallel same-corridor marks dedupe at 2.75".
 - X every empty compact diamond; never X rings around filler discs or long
   crescent channels. Pocket character is judged on a geometry-only region map
-  with throat-width gaps sealed.
+  with throat-width gaps sealed (rect adjacency must be tested against
+  clearance-grown rects, not raw cell contact). A stretched diamond (long
+  chord > 2× the enclosed-span limit) doubles its short stroke: long diagonal
+  plus two parallel shorts.
 - Nothing against scrap rects (they fall out) or disc/sheet-edge tangencies
-  (slivers snap off); rect voids do count as openings for channel dashes.
+  (slivers snap off). Rect-facing pockets get NO pinch marks or dashes at all
+  — zoomed t7/t8 targets show every rect boundary bare (this overturned an
+  earlier "channel dashes at rect voids" rule).
+- Apex pairs: a disc's closest approach to a sheet edge with gap in
+  (Max Neck, 1.5×Max Neck], or to a rect face with gap in (hand-break,
+  1.5×Max Neck], gets two 45° slants straddling the apex, leaning toward it,
+  placed where the strip has deepened by ~1.75".
 - Chevrons: vertex at the sheet edge, arms anchored at the vertex; corner
   marks run along the corner bisector.
 - Grid cuts only where both region dimensions exceed Max Piece Span.
+- UNRESOLVED: t5's target adds 45° flare slants mid-pocket along edge strips
+  (between each edge-throat tick and the neighbouring chevrons, ~every 6");
+  t6's target has identical strip geometry and none. Flares are currently not
+  emitted — get a ruling from the user before adding them.
 
 ### Maintenance
 
